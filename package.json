@@ -1,0 +1,16 @@
+{
+  "name": "assistent-agent",
+  "version": "0.1.0",
+  "description": "Persönlicher Assistent mit Dashboard: To-dos, iCloud-Kalender, iCloud-Mail und Wetter – mit Claude als Agent.",
+  "type": "module",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20.10"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js",
+    "mcp": "node bin/mcp-stdio.js"
+  }
+}
