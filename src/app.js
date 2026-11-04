@@ -413,7 +413,28 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
   // ---------- Chat ----------
 
   r('GET', '/api/chat', () => ({ log: chat.log(), available: services.claude.enabled(), busy: chat.busy() }));
-  r('POST', '/api/chat', async (req, res, { body }) => chat.send(body.message, body.display));
+  r('POST', '/api/chat', async (req, res, { body }) => {
+    const voice = Boolean(body.voice);
+    if (!String(req.headers.accept || '').includes('application/x-ndjson')) return chat.send(body.message, body.display, { voice });
+    // Live-Übertragung: eine JSON-Zeile pro Ereignis (Text-Stücke, Werkzeug-Start/-Ende, Ende)
+    if (!services.claude.enabled()) throw new HttpError(409, 'Für den Chat brauche ich einen Claude-API-Schlüssel. Du kannst ihn unter „Verbindungen“ eintragen.');
+    if (chat.busy()) throw new HttpError(409, 'Ich antworte gerade noch auf deine letzte Nachricht.');
+    res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
+    const send = (evt) => {
+      if (!res.writableEnded) res.write(`${JSON.stringify(evt)}\n`);
+    };
+    const keepAlive = setInterval(() => send({ type: 'ping' }), 15000);
+    try {
+      const result = await chat.send(body.message, body.display, { voice, stream: true, onEvent: send });
+      send({ type: 'done', reply: result.reply, tools: result.tools });
+    } catch (err) {
+      send({ type: 'error', error: err.message });
+    } finally {
+      clearInterval(keepAlive);
+      res.end();
+    }
+    return undefined;
+  });
   r('DELETE', '/api/chat', () => {
     chat.clear();
     return { ok: true };

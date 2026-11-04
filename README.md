@@ -7,7 +7,8 @@ Dein persönlicher Agent als Website mit Dashboard:
 - **iCloud-Mail** lesen, durchsuchen, markieren, verschieben und **Antwort-Entwürfe** schreiben (verschickt wird nie etwas automatisch)
 - **Wetter** für deinen Ort
 - **Tagesplan** jeden Morgen ab 6 Uhr – oder sobald dein Mac an ist: To-dos aus Terminen und Mails plus ein kurzes Briefing
-- **Chat mit dem Agenten** im Dashboard („Hab ich Freitag um 15 Uhr Zeit?“)
+- **Chat mit dem Agenten** im Dashboard („Hab ich Freitag um 15 Uhr Zeit?“) – live: Während er arbeitet, tauchen Karten auf, was er gerade macht („Prüfe deinen Kalender …“), und danach das Ergebnis („Frei“, neues To-do, Termin, Wetter, Mail-Entwurf)
+- **Sprechen statt tippen**: auf die orange Kugel tippen und reden. Antworten wahlweise **nur als Text** oder **Text + Stimme** (tiefe, ruhige Stimme)
 - **Connector für Claude**: In der Claude-App auf dem Mac kannst du direkt mit deinem Dashboard arbeiten
 
 Beim ersten Start fragt dich der Assistent Schritt für Schritt, auf welche Apps er zugreifen darf. Alles lässt sich später unter **Verbindungen** ändern.
@@ -71,6 +72,21 @@ Ohne Claude-Schlüssel funktionieren To-dos, Kalender, Mail und Wetter trotzdem;
 ## Auf dem iPhone öffnen
 
 In **Einstellungen → Vom iPhone aus öffnen** den Haken setzen. Dann zeigt der Assistent dir die Adresse, z. B. `http://dein-mac.local:3000`. Die öffnest du auf dem iPhone in Safari (gleiches WLAN). Tipp: „Teilen → Zum Home-Bildschirm“, dann sieht es aus wie eine App.
+
+---
+
+## Sprechen und Vorlesen
+
+- **Sprechen:** Im Agent-Bereich auf die orange Kugel tippen und reden. Wenn du fertig bist, schickt der Agent die Frage von selbst ab.
+- **Antwort:** Unten im Agent-Bereich „Nur Text“ oder „Text + Stimme“ wählen. Mit Stimme liest er Satz für Satz vor, schon während die Antwort kommt.
+- **Gespräch:** Hast du gesprochen und die Stimme ist an, hört er nach seiner Antwort gleich wieder zu. Sagst du nichts, hört er auf.
+- **Stimme einstellen:** Unter **Einstellungen → Stimme** Stimme, Tempo und Tonhöhe wählen. Standard ist eine männliche deutsche Stimme, etwas tiefer und langsamer.
+- **Bessere Stimmen:** Die Stimmen kommen von deinem Gerät. Tiefere, natürlichere Stimmen kannst du nachladen: am Mac unter Systemeinstellungen → Bedienungshilfen → Gesprochene Inhalte → Systemstimme, am iPhone unter Einstellungen → Bedienungshilfen → Gesprochene Inhalte → Stimmen → Deutsch.
+
+Gut zu wissen:
+
+- Das Mikrofon funktioniert im Browser nur über eine sichere Verbindung: direkt am Mac über `http://localhost:3000` klappt es, auf dem iPhone über das WLAN (`http://…:3000`) nicht. Dort nimmst du solange das Mikrofon der Tastatur – oder später die Server-Version mit HTTPS.
+- Die Spracherkennung übernimmt der Browser (Safari: Apple, Chrome: Google). Das Vorlesen passiert auf deinem Gerät.
 
 ---
 
@@ -177,6 +193,7 @@ src/mcp.js           Connector (MCP, Versionen 2024-11-05 bis 2026-07-28)
 src/lib/             CalDAV, iCalendar mit Wiederholungen, IMAP, MIME, Zeitzonen
 bin/mcp-stdio.js     Brücke für die Claude-App auf dem Mac
 public/              Dashboard (HTML, CSS, JavaScript ohne Framework)
+public/js/           Oberfläche: dashboard.js (Agent, Karten live), widgets.js, voice.js (Sprechen/Vorlesen), setup.js
 test/                Tests mit nachgebauten Servern
 ```
 

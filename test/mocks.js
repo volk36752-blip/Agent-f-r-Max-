@@ -299,7 +299,8 @@ export async function startImap({ user, password }) {
 
 // ---------------- Claude-API ----------------
 
-export async function startClaude({ apiKey, script }) {
+export async function startClaude({ apiKey, script, delayMs = 0 }) {
+  const pause = () => (delayMs ? new Promise((r) => setTimeout(r, delayMs)) : null);
   const requests = [];
   const server = http.createServer(async (req, res) => {
     const chunks = [];
@@ -315,8 +316,34 @@ export async function startClaude({ apiKey, script }) {
     }
     requests.push({ headers: req.headers, body });
     const reply = script(body, requests.length);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ id: `msg_${requests.length}`, type: 'message', role: 'assistant', model: body.model, usage: { input_tokens: 10, output_tokens: 5 }, ...reply }));
+    const id = `msg_${requests.length}`;
+    if (!body.stream) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ id, type: 'message', role: 'assistant', model: body.model, usage: { input_tokens: 10, output_tokens: 5 }, ...reply }));
+    }
+    // Wie die echte API: Server-Sent Events, Text in Stücken, Werkzeug-Eingaben als JSON-Teile
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    const ev = (type, data) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`);
+    ev('message_start', { message: { id, type: 'message', role: 'assistant', model: body.model, content: [], usage: { input_tokens: 10, output_tokens: 1 } } });
+    for (const [index, block] of reply.content.entries()) {
+      if (block.type === 'text') {
+        ev('content_block_start', { index, content_block: { type: 'text', text: '' } });
+        for (const piece of block.text.match(/.{1,7}/gs) || []) {
+          ev('content_block_delta', { index, delta: { type: 'text_delta', text: piece } });
+          await pause();
+        }
+      } else {
+        await pause();
+        ev('content_block_start', { index, content_block: { type: 'tool_use', id: block.id, name: block.name, input: {} } });
+        const json = JSON.stringify(block.input);
+        ev('content_block_delta', { index, delta: { type: 'input_json_delta', partial_json: json.slice(0, 5) } });
+        ev('content_block_delta', { index, delta: { type: 'input_json_delta', partial_json: json.slice(5) } });
+      }
+      ev('content_block_stop', { index });
+    }
+    ev('message_delta', { delta: { stop_reason: reply.stop_reason }, usage: { output_tokens: 20 } });
+    ev('message_stop', {});
+    res.end();
   });
   const port = await listen(server);
   return { url: `http://127.0.0.1:${port}`, requests, close: () => new Promise((r) => server.close(r)) };

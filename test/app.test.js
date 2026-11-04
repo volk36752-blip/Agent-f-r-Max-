@@ -263,6 +263,32 @@ test('Chat mit Claude benutzt Werkzeuge', async () => {
   assert.deepEqual(log.data.log[1].tools, ['Freie Zeit prüfen', 'To-do anlegen']);
 });
 
+test('Chat live: Text-Stücke und Werkzeug-Karten kommen nacheinander', async () => {
+  const res = await fetch(`${base}/api/chat`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-assistent': '1', cookie: cookieJar, accept: 'application/x-ndjson' },
+    body: JSON.stringify({ message: 'Hab ich morgen um 15 Uhr Zeit?', voice: true }),
+  });
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /ndjson/);
+  const events = (await res.text()).trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.type !== 'ping');
+  const types = events.map((e) => e.type);
+  assert.deepEqual(types.slice(0, 4), ['tool_start', 'tool_end', 'tool_start', 'tool_end']);
+  assert.equal(events[1].name, 'calendar_is_free');
+  assert.equal(events[1].result.frei, true);
+  assert.equal(events[0].input.start, `${tomorrow}T15:00`, 'Werkzeug-Eingabe aus den JSON-Stücken zusammengesetzt');
+  assert.ok(types.filter((t) => t === 'text').length > 1, 'Text kommt in Stücken');
+  assert.equal(events.filter((e) => e.type === 'text').map((e) => e.text).join(''), 'Morgen um 15 Uhr bist du frei.');
+  assert.equal(types[types.length - 1], 'done');
+  const last = claude.requests[claude.requests.length - 1];
+  assert.equal(last.body.stream, true);
+  assert.match(last.body.system, /laut vorgelesen/);
+  const log = (await api('GET', '/api/chat')).data.log;
+  const entry = log[log.length - 1];
+  assert.deepEqual(entry.parts.map((p) => p.type), ['tool', 'tool', 'text']);
+  assert.equal(entry.parts[0].result.frei, true);
+});
+
 test('Tagesplan: erst ab der eingestellten Uhrzeit, einmal pro Tag', async () => {
   const { planner, stores } = app;
   stores.config.update((c) => {
