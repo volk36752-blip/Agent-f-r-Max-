@@ -17,7 +17,29 @@ Der Assistent braucht **keine zusätzlichen Pakete** – nur Node.js.
 
 ---
 
-## Auf dem Mac starten
+## Als Mac-App (empfohlen)
+
+Der Assistent kommt als eigene Mac-App mit orangem Symbol: eigenes Fenster, im Dock, ohne Terminal und ohne Browser. Beim Öffnen startet die App den Assistenten selbst. Sprechen und Vorlesen laufen über die Stimmen und die Spracherkennung von macOS.
+
+1. **Node.js** installieren (LTS von [nodejs.org](https://nodejs.org/de/download)) – einmalig.
+2. Den Ordner `assistent-agent` in deinen **Benutzerordner** legen.
+3. Doppelklick auf **`Mac-App bauen.command`**. Das Skript baut die App (dafür braucht es Xcode oder die Xcode-Befehlszeilenwerkzeuge – fehlen sie, startet es die Installation), legt sie in den Programme-Ordner und öffnet sie.
+4. Damit sie im Dock bleibt: Rechtsklick auf das Symbol im Dock → **Optionen → Im Dock behalten**.
+
+Beim ersten Sprechen fragt macOS nach dem Mikrofon und der Spracherkennung – beides erlauben.
+
+Im Menü **Assistent** findest du:
+
+- **Im Hintergrund laufen lassen** – dann läuft der Assistent auch, wenn die App zu ist, und der Tagesplan kommt jeden Morgen.
+- **In Safari öffnen** und **Ordner im Finder zeigen**.
+
+Wenn du den Ordner verschiebst oder eine neue Version herunterlädst: einfach nochmal `Mac-App bauen.command` doppelklicken.
+
+Falls das Bauen nicht klappt, geht es auch ohne: Assistent starten (siehe unten), in Safari `http://localhost:3000` öffnen und im Menü **Ablage → Zum Dock hinzufügen** wählen.
+
+---
+
+## Auf dem Mac starten (ohne App)
 
 ### 1. Node.js installieren (einmalig)
 
@@ -192,6 +214,8 @@ src/plan.js          Tagesplan ab 6 Uhr
 src/mcp.js           Connector (MCP, Versionen 2024-11-05 bis 2026-07-28)
 src/lib/             CalDAV, iCalendar mit Wiederholungen, IMAP, MIME, Zeitzonen
 bin/mcp-stdio.js     Brücke für die Claude-App auf dem Mac
+mac/main.swift       Mac-App: Fenster, startet den Assistenten, Sprache über macOS
+scripts/             Mac-App bauen, Autostart an/aus
 public/              Dashboard (HTML, CSS, JavaScript ohne Framework)
 public/js/           Oberfläche: dashboard.js (Agent, Karten live), widgets.js, voice.js (Sprechen/Vorlesen), setup.js
 test/                Tests mit nachgebauten Servern

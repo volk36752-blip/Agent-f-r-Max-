@@ -17,8 +17,10 @@ case "$DIR" in
     echo "Verschieb den Ordner am besten direkt in deinen Benutzerordner (z. B. $HOME/assistent-agent)"
     echo "und starte dieses Skript dann nochmal."
     echo ""
-    read -r -p "Trotzdem weitermachen? (j/n) " answer
-    [ "$answer" = "j" ] || exit 1
+    if [ "${ASSISTENT_OHNE_FRAGEN:-}" != "1" ]; then
+      read -r -p "Trotzdem weitermachen? (j/n) " answer
+      [ "$answer" = "j" ] || exit 1
+    fi
     ;;
 esac
 
@@ -53,7 +55,7 @@ sleep 2
 if curl -s http://localhost:3000/api/health >/dev/null 2>&1; then
   echo "Fertig. Der Assistent läuft jetzt und startet nach jedem Anmelden von selbst."
   echo "Dashboard: http://localhost:3000"
-  open -a Safari http://localhost:3000 2>/dev/null || true
+  [ "${ASSISTENT_KEIN_BROWSER:-}" = "1" ] || open -a Safari http://localhost:3000 2>/dev/null || true
 else
   echo "Gestartet, aber noch nicht erreichbar. Details stehen in: $DIR/data/assistent.log"
 fi

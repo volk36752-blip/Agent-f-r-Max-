@@ -155,6 +155,12 @@ export function relativeDay(d, today) {
 }
 
 export function copy(text) {
+  const app = window.webkit?.messageHandlers?.assistentNative;
+  if (app) {
+    app.postMessage({ cmd: 'copy', id: 'kopie', text: String(text) });
+    toast('Kopiert.');
+    return;
+  }
   navigator.clipboard?.writeText(text).then(() => toast('Kopiert.'), () => toast('Kopieren hat nicht geklappt – bitte von Hand markieren.', 'error'));
 }
 

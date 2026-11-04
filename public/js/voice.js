@@ -40,16 +40,46 @@ export const voiceSettings = {
 // ---------- Vorlesen ----------
 
 const synth = typeof window !== 'undefined' ? window.speechSynthesis : null;
+
+// In der Mac-App übernimmt macOS das Vorlesen und Zuhören – über eine Brücke zur App.
+const nativeHandler = typeof window !== 'undefined' && window.webkit?.messageHandlers?.assistentNative ? window.webkit.messageHandlers.assistentNative : null;
+export const isMacApp = Boolean(nativeHandler);
+const bridge = {
+  seq: 0,
+  handlers: new Map(),
+  call(cmd, data = {}, handler) {
+    const id = `n${++this.seq}`;
+    if (handler) this.handlers.set(id, handler);
+    nativeHandler.postMessage({ cmd, id, ...data });
+    return id;
+  },
+};
+let nativeVoices = [];
+if (nativeHandler) {
+  window.__assistentNative = {
+    receive(msg) {
+      const handler = bridge.handlers.get(msg?.id);
+      if (handler) handler(msg);
+    },
+  };
+  bridge.call('voices', {}, (m) => {
+    bridge.handlers.delete(m.id);
+    nativeVoices = (m.voices || []).map((v) => ({ name: v.name, lang: v.lang, voiceURI: v.id, localService: true, quality: v.quality, male: v.male, nativeScore: v.score }));
+    window.dispatchEvent(new Event('assistent-voices'));
+  });
+}
 const MALE = /(Markus|Yannick|Martin|Viktor|Stefan|Conrad|Killian|Florian|Ralf|Reed|Eddy|Rocko|Jonas|Daniel|Bernd|Hans|Thomas)/i;
 const QUALITY = /(Premium|Erweitert|Enhanced|Natural|Neural|Siri)/i;
 const NOVELTY = /(Grandma|Grandpa|Shelley|Sandy|Flo\b|Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Good News|Jester|Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox|Junior|Kathy|Fred)/i;
 
 export function germanVoices() {
+  if (nativeHandler) return nativeVoices;
   if (!synth) return [];
   return synth.getVoices().filter((v) => /^de/i.test(v.lang));
 }
 
 function score(v) {
+  if (v.nativeScore !== undefined) return v.nativeScore;
   let s = 0;
   if (QUALITY.test(v.name)) s += 30;
   if (MALE.test(v.name)) s += 40;
@@ -107,16 +137,17 @@ export function cleanForSpeech(text) {
 }
 
 export const speech = {
-  supported: Boolean(synth && typeof SpeechSynthesisUtterance !== 'undefined'),
+  supported: Boolean(nativeHandler || (synth && typeof SpeechSynthesisUtterance !== 'undefined')),
   buffer: '',
   pending: 0,
+  generation: 0,
   idleCallback: null,
   unlocked: false,
   onState: () => {},
 
   // iPhone: Vorlesen muss einmal durch einen Fingertipp freigeschaltet werden
   unlock() {
-    if (!this.supported || this.unlocked) return;
+    if (nativeHandler || !this.supported || this.unlocked) return;
     try {
       const u = new SpeechSynthesisUtterance(' ');
       u.volume = 0;
@@ -130,15 +161,13 @@ export const speech = {
   say(text) {
     const t = cleanForSpeech(text);
     if (!this.supported || !t) return;
-    const u = new SpeechSynthesisUtterance(t);
-    const v = pickVoice();
-    u.lang = v?.lang || 'de-DE';
-    if (v) u.voice = v;
-    u.rate = voiceSettings.rate;
-    u.pitch = voiceSettings.pitch;
+    const gen = this.generation;
     this.pending++;
     this.onState('speaking');
+    let finished = false;
     const finish = () => {
+      if (finished || gen !== this.generation) return; // gestoppt: alte Meldungen ignorieren
+      finished = true;
       this.pending = Math.max(0, this.pending - 1);
       if (!this.pending) {
         this.onState('idle-speech');
@@ -147,6 +176,20 @@ export const speech = {
         cb?.();
       }
     };
+    if (nativeHandler) {
+      bridge.call('speak', { text: t, rate: voiceSettings.rate, pitch: voiceSettings.pitch, voice: voiceSettings.voiceURI }, (m) => {
+        if (m.type !== 'speech-end') return;
+        bridge.handlers.delete(m.id);
+        finish();
+      });
+      return;
+    }
+    const u = new SpeechSynthesisUtterance(t);
+    const v = pickVoice();
+    u.lang = v?.lang || 'de-DE';
+    if (v) u.voice = v;
+    u.rate = voiceSettings.rate;
+    u.pitch = voiceSettings.pitch;
     u.onend = finish;
     u.onerror = finish;
     synth.speak(u);
@@ -173,10 +216,12 @@ export const speech = {
   },
 
   stop() {
+    this.generation++;
     this.buffer = '';
     this.idleCallback = null;
     this.pending = 0;
-    if (this.supported) synth.cancel();
+    if (nativeHandler) bridge.call('stopSpeaking');
+    else if (this.supported) synth.cancel();
     this.onState('idle-speech');
   },
 
@@ -202,11 +247,14 @@ if (synth) {
 const Recognition = typeof window !== 'undefined' ? window.SpeechRecognition || window.webkitSpeechRecognition : null;
 
 export const ears = {
-  supported: Boolean(Recognition),
+  supported: Boolean(nativeHandler || Recognition),
   rec: null,
   active: false,
+  nativeId: null,
+  cancelledId: null,
 
   problem() {
+    if (nativeHandler) return null;
     if (!Recognition) return 'Spracheingabe kann dieser Browser nicht. Nimm Safari oder Chrome – oder das Mikrofon auf deiner Tastatur.';
     if (!window.isSecureContext) return 'Das Mikrofon geht hier nur über eine sichere Verbindung (https) oder direkt am Mac über localhost. Auf dem iPhone kannst du solange das Mikrofon der Tastatur benutzen.';
     return null;
@@ -220,6 +268,27 @@ export const ears = {
       return false;
     }
     this.stop(true);
+    if (nativeHandler) {
+      let latest = '';
+      const id = bridge.call('listen', {}, (m) => {
+        if (m.type === 'listen-text') {
+          latest = m.text || '';
+          onText?.(latest, Boolean(m.final));
+        } else if (m.type === 'listen-error') {
+          onError?.(m.message, m.code);
+        } else if (m.type === 'listen-end') {
+          bridge.handlers.delete(id);
+          if (this.nativeId === id) {
+            this.nativeId = null;
+            this.active = false;
+          }
+          onEnd?.(this.cancelledId === id ? '' : (m.text || latest).trim());
+        }
+      });
+      this.nativeId = id;
+      this.active = true;
+      return true;
+    }
     const rec = new Recognition();
     rec.lang = 'de-DE';
     rec.interimResults = true;
@@ -264,6 +333,12 @@ export const ears = {
 
   // cancel: nichts abschicken
   stop(cancel = false) {
+    if (nativeHandler) {
+      if (!this.nativeId) return;
+      if (cancel) this.cancelledId = this.nativeId;
+      bridge.call('stopListening', { cancel });
+      return;
+    }
     if (!this.rec) return;
     this.rec.cancelled = cancel;
     try {

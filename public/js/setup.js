@@ -476,7 +476,7 @@ function voiceSection() {
     const voices = rankedVoices();
     const select = h('select', { id: 'voice' },
       h('option', { value: '' }, voices.length ? `Automatisch (${voices[0].name})` : 'Automatisch'),
-      voices.map((v) => h('option', { value: v.voiceURI, selected: v.voiceURI === voiceSettings.voiceURI }, `${v.name}${v.localService ? '' : ' (online)'}`)));
+      voices.map((v) => h('option', { value: v.voiceURI, selected: v.voiceURI === voiceSettings.voiceURI }, `${v.name}${v.quality && v.quality !== 'standard' ? ` (${v.quality})` : ''}${v.localService ? '' : ' (online)'}`)));
     select.addEventListener('change', () => {
       voiceSettings.voiceURI = select.value;
       speech.test();
@@ -514,6 +514,7 @@ function voiceSection() {
       h('p', { class: 'hint' }, 'Diese Einstellungen gelten nur für dieses Gerät.'));
   };
   fill();
-  if (speech.supported && !germanVoices().length) window.speechSynthesis.addEventListener?.('voiceschanged', fill, { once: true });
+  window.addEventListener('assistent-voices', fill, { once: true });
+  if (speech.supported && !germanVoices().length) window.speechSynthesis?.addEventListener?.('voiceschanged', fill, { once: true });
   return section;
 }

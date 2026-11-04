@@ -2,6 +2,7 @@
 data/
 
 node_modules/
+mac/build/
 .DS_Store
 *.log
 *.tmp

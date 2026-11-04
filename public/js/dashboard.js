@@ -736,6 +736,7 @@ export async function sendChat(text, display, { spoken = false } = {}) {
       if (voiceOn) speech.feed(evt.text);
     } else if (evt.type === 'tool_start') {
       endSay();
+      if (voiceOn) speech.flush(); // angefangenen Satz vor dem Werkzeug vorlesen
       const w = runningWidget(evt.name, evt.id);
       running.set(evt.id, w);
       turn.append(w);
