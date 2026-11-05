@@ -62,6 +62,7 @@ final class MacBridge: NSObject {
     let caller: ToolCaller
     var running = false
     var polling = false
+    var pollFailed = false
     var helloTimer: Timer?
     var eventStore = EKEventStore()
     let contactStore = CNContactStore()
@@ -139,8 +140,14 @@ final class MacBridge: NSObject {
                 self.polling = false
                 for r in requests { self.handle(r) }
                 if ok {
+                    // Server neu gestartet? Dann wieder melden (Apple Intelligence, Version …)
+                    if self.pollFailed {
+                        self.pollFailed = false
+                        self.sendHello()
+                    }
                     self.poll()
                 } else {
+                    self.pollFailed = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.poll() }
                 }
             }
@@ -267,9 +274,17 @@ final class MacBridge: NSObject {
         guard created == 0 else { return "unknown" }
         defer { AEDisposeDesc(&addr) }
         let status = AEDeterminePermissionToAutomateTarget(&addr, AEEventClass(typeWildCard), AEEventID(typeWildCard), ask)
-        if status == 0 { return "granted" }
-        if status == OSStatus(errAEEventNotPermitted) { return "denied" }
-        return "unknown"
+        let memo = "steuern.\(bundleID)"
+        if status == 0 {
+            UserDefaults.standard.set("granted", forKey: memo)
+            return "granted"
+        }
+        if status == OSStatus(errAEEventNotPermitted) {
+            UserDefaults.standard.set("denied", forKey: memo)
+            return "denied"
+        }
+        // Läuft die App gerade nicht, sagt macOS nichts – dann zählt die letzte Antwort
+        return UserDefaults.standard.string(forKey: memo) ?? "unknown"
     }
 
     var whatsappContainer: String { NSHomeDirectory() + "/Library/Group Containers/group.net.whatsapp.WhatsApp.shared" }

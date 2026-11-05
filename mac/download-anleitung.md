@@ -8,5 +8,6 @@
    (Auf älteren Macs: Rechtsklick auf die App → „Öffnen“ → „Öffnen“.)
 5. Die App fragt, ob sie sich in den Ordner **Programme** legen soll → **„In Programme legen“**.
 6. Danach fragt sie nach den Berechtigungen: Mikrofon, Mitteilungen, Standort, Dock und ob sie morgens von selbst starten soll.
+7. Kalender, Mail, WhatsApp, Erinnerungen und Kontakte brauchen kein Passwort: Beim ersten Zugriff fragt macOS mit einem kleinen Fenster – einfach „Erlauben“ klicken.
 
 Du brauchst nichts weiter zu installieren – alles steckt in der App. Deine Daten liegen nur auf deinem Mac.

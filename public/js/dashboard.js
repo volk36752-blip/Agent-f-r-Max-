@@ -187,7 +187,9 @@ function stateView(r, w, id) {
       return box(h('p', {}, `Darf ich auf ${app === 'mail' ? 'deine Mail-App' : app === 'whatsapp' ? 'WhatsApp' : `deine ${name}`} zugreifen? macOS fragt dich dafür einmal – ohne Passwort.`),
         h('button', { class: 'btn btn-small', type: 'button', onclick: (e) => allowApp(app, e.currentTarget, id) }, icon('check'), 'Erlauben'));
     case 'denied':
-      return box(h('p', {}, `Der Zugriff auf ${name} ist in macOS nicht erlaubt.`),
+      return box(h('p', {}, app === 'whatsapp'
+        ? 'macOS lässt mich die WhatsApp-Daten noch nicht lesen. Schalte in den Systemeinstellungen unter „Festplattenvollzugriff“ den Assistenten ein.'
+        : `Der Zugriff auf ${name} ist in macOS nicht erlaubt.`),
         isMacApp ? h('button', { class: 'btn btn-quiet btn-small', type: 'button', onclick: () => nativeCall('openSettings', { kind: SETTINGS_KIND[app] || 'privacy' }, 5000).catch(() => {}) }, 'Systemeinstellungen öffnen') : '');
     case 'offline':
       return box(h('p', {}, `${name} ohne Passwort geht nur in der Mac-App „Assistent“.`));
