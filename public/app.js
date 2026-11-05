@@ -2,8 +2,8 @@
 
 import { h, api, go } from './js/ui.js';
 import { renderDashboard, stopDashboard } from './js/dashboard.js';
-import { renderSetup, renderSingleStep, renderConnections, renderSettings } from './js/setup.js';
-import { renderPermissionsPage } from './js/permissions.js';
+import { renderSingleStep } from './js/setup.js';
+import { renderSettings, renderOnboarding } from './js/settings.js';
 
 const root = document.getElementById('app');
 let status = null;
@@ -24,12 +24,13 @@ async function route() {
   if (status.needsPassword && !status.loggedIn) return renderCreatePassword();
   if (!status.loggedIn) return renderLogin();
   const path = currentPath();
-  if (!status.setupDone && !path.startsWith('/einrichtung')) return go('/einrichtung/willkommen');
-  if (path.startsWith('/einrichtung')) return renderSetup(path.split('/')[2] || 'willkommen');
-  if (path.startsWith('/verbindungen/')) return renderSingleStep(path.split('/')[2]);
-  if (path === '/verbindungen') return renderConnections();
-  if (path === '/einstellungen') return renderSettings();
-  if (path === '/berechtigungen') return renderPermissionsPage();
+  const parts = path.split('/').filter(Boolean);
+  if (!status.setupDone && parts[0] !== 'einrichtung' && parts[0] !== 'verbindungen') return go('/einrichtung');
+  if (parts[0] === 'einrichtung') return renderOnboarding(parts[1]);
+  if (parts[0] === 'verbindungen' && parts[1]) return renderSingleStep(parts[1]);
+  if (parts[0] === 'verbindungen') return go('/einstellungen/apps');
+  if (parts[0] === 'berechtigungen') return go('/einstellungen/mac');
+  if (parts[0] === 'einstellungen') return renderSettings(parts[1] || 'apps');
   return renderDashboard();
 }
 
@@ -49,7 +50,7 @@ function renderCreatePassword() {
     }
     try {
       await api('POST', '/api/setup/password', { password: pw.value, code: codeInput.value });
-      go('/einrichtung/willkommen');
+      go('/einrichtung');
     } catch (ex) {
       err.textContent = ex.message;
     }

@@ -22,7 +22,7 @@ async function skip(id) {
 function stepPage(step, single, ...content) {
   const idx = STEPS.indexOf(step);
   const progress = single
-    ? h('p', { class: 'setup-progress' }, h('a', { href: '#/verbindungen' }, '‹ Zurück zu den Verbindungen'))
+    ? h('p', { class: 'setup-progress' }, h('a', { href: '#/einstellungen/erweitert' }, '‹ Zurück zu den Einstellungen'))
     : [h('p', { class: 'setup-progress' }, idx > 0 && idx < STEPS.length - 1 ? `Schritt ${idx} von ${STEPS.length - 2}` : 'Einrichtung'), h('div', { class: 'setup-bar' }, (() => {
       const bar = h('div');
       bar.style.setProperty('--p', `${(idx / (STEPS.length - 1)) * 100}%`);
@@ -32,7 +32,7 @@ function stepPage(step, single, ...content) {
 }
 
 function nextStep(step, single) {
-  if (single) return go('/verbindungen');
+  if (single) return go('/einstellungen/erweitert');
   go(`/einrichtung/${STEPS[STEPS.indexOf(step) + 1]}`);
 }
 
@@ -41,7 +41,7 @@ function actions(...btns) {
 }
 
 function laterButton(step, id, single) {
-  if (single) return h('a', { class: 'btn btn-quiet', href: '#/verbindungen' }, 'Abbrechen');
+  if (single) return h('a', { class: 'btn btn-quiet', href: '#/einstellungen/erweitert' }, 'Abbrechen');
   return h('button', { class: 'btn btn-quiet', type: 'button', onclick: async () => {
     await skip(id).catch(() => {});
     nextStep(step, single);
@@ -310,229 +310,21 @@ export async function renderSetup(step) {
 }
 
 export async function renderSingleStep(step) {
-  if (!STEP_RENDERERS[step] || ['willkommen', 'fertig'].includes(step)) return go('/verbindungen');
-  if (step === 'berechtigungen') return go('/berechtigungen');
+  if (!STEP_RENDERERS[step] || ['willkommen', 'fertig'].includes(step)) return go('/einstellungen/erweitert');
+  if (step === 'berechtigungen') return go('/einstellungen/mac');
   try {
     const page = await STEP_RENDERERS[step](step, true);
     if (!page) return;
-    root.replaceChildren(...shell('/verbindungen', page));
+    root.replaceChildren(...shell('/einstellungen', page));
     page.querySelector('input:not([type="checkbox"])')?.focus();
   } catch (err) {
     toast(err.message, 'error');
   }
 }
 
-// ---------------- Verbindungen ----------------
-
-export async function renderConnections() {
-  let c;
-  let connector;
-  try {
-    [c, connector] = await Promise.all([connections(), api('GET', '/api/connector')]);
-  } catch (err) {
-    toast(err.message, 'error');
-    return;
-  }
-  const s = c.status;
-  const disconnect = (url, label) => h('button', { class: 'btn btn-quiet', type: 'button', onclick: async () => {
-    if (!confirm(`${label} wirklich trennen?`)) return;
-    try {
-      await api('DELETE', url);
-      toast('Getrennt.');
-      renderConnections();
-    } catch (err) {
-      toast(err.message, 'error');
-    }
-  } }, 'Trennen');
-  const disconnectIcloud = (which, st) => h('button', { class: 'btn btn-quiet', type: 'button', onclick: async () => {
-    const label = which === 'calendar' ? 'Den Kalender' : 'Die Mail';
-    if (!confirm(`${label} wirklich trennen?`)) return;
-    const other = which === 'calendar' ? st.mail.connected : st.calendar.connected;
-    try {
-      if (other) await api('PUT', '/api/connections/icloud', { [which]: false });
-      else await api('DELETE', '/api/connections/icloud');
-      toast('Getrennt.');
-      renderConnections();
-    } catch (err) {
-      toast(err.message, 'error');
-    }
-  } }, 'Trennen');
-  const row = (ic, name, on, detail, ...buttons) => h('div', { class: 'conn' },
-    h('span', { class: 'conn-icon', html: ICONS[ic] }),
-    h('div', {}, h('div', { class: 'name' }, name), h('div', { class: `state${on ? ' on' : ''}` }, detail)),
-    h('div', { class: 'conn-actions' }, buttons));
-  const page = h('main', { class: 'page page-narrow' },
-    h('h1', {}, 'Verbindungen'),
-    h('section', { class: 'conn-section' },
-      h('p', {}, 'Worauf der Assistent zugreifen darf. Zugangsdaten bleiben auf deinem Rechner.'),
-      h('div', { class: 'conn-list' },
-      row('calendar', 'iCloud-Kalender', s.calendar.connected, s.calendar.connected ? `Verbunden mit ${s.calendar.account}` : 'Nicht verbunden',
-        h('a', { class: 'btn btn-quiet', href: '#/verbindungen/kalender' }, s.calendar.connected ? 'Ändern' : 'Verbinden'),
-        s.calendar.connected && disconnectIcloud('calendar', s)),
-      row('mail', 'iCloud-Mail', s.mail.connected, s.mail.connected ? `Verbunden mit ${s.mail.address}` : 'Nicht verbunden',
-        h('a', { class: 'btn btn-quiet', href: '#/verbindungen/mail' }, s.mail.connected ? 'Ändern' : 'Verbinden'),
-        s.mail.connected && disconnectIcloud('mail', s)),
-      row('weather', 'Wetter', s.weather.connected, s.weather.connected ? s.weather.place : 'Kein Ort eingestellt',
-        h('a', { class: 'btn btn-quiet', href: '#/verbindungen/wetter' }, s.weather.connected ? 'Ort ändern' : 'Einstellen'),
-        s.weather.connected && disconnect('/api/connections/weather', 'Das Wetter')),
-      row('agent', 'Claude (Chat & Tagesplan)', s.claude.connected, s.claude.connected ? `Aktiv mit ${c.claude.models.find((m) => m.id === c.claude.model)?.label || c.claude.model}` : 'Kein API-Schlüssel',
-        h('a', { class: 'btn btn-quiet', href: '#/verbindungen/claude' }, s.claude.connected ? 'Ändern' : 'Verbinden'),
-        s.claude.connected && disconnect('/api/connections/claude', 'Claude')),
-      row('plug', 'In der Claude-App benutzen', false, 'Damit Claude auf dem Mac direkt mit deinem Dashboard arbeiten kann',
-        h('a', { class: 'btn btn-quiet', href: '#/verbindungen/claude-app' }, 'Anleitung')))),
-    h('section', { class: 'conn-section' },
-      h('h2', {}, 'Geplant'),
-      h('p', {}, c.wishes.length ? 'Das hast du dir gewünscht. Diese Verbindungen gibt es noch nicht – sie kommen als Nächstes dazu.' : 'Noch keine Wünsche. Unter „Wünsche ändern“ kannst du ankreuzen, worauf der Assistent später zugreifen soll.'),
-      c.wishes.length ? h('ul', { class: 'summary' }, c.wishes.map((id) => h('li', {}, h('span', { html: ICONS.plus }), c.wishApps.find((w) => w.id === id)?.name || id))) : '',
-      h('div', { class: 'actions' }, h('a', { class: 'btn btn-quiet', href: '#/verbindungen/wuensche' }, 'Wünsche ändern'))),
-    h('section', { class: 'conn-section' },
-      h('h2', {}, 'Zugangsschlüssel für Claude'),
-      h('p', {}, 'Damit meldet sich Claude beim Assistenten an. Wenn du glaubst, jemand anderes kennt ihn, erzeuge einen neuen – danach musst du ihn in Claude neu eintragen.'),
-      h('div', { class: 'code' }, connector.token),
-      h('div', { class: 'actions' }, h('button', { class: 'btn btn-quiet', type: 'button', onclick: async () => {
-        if (!confirm('Neuen Zugangsschlüssel erzeugen? Der alte funktioniert dann nicht mehr.')) return;
-        await api('POST', '/api/connector/token');
-        toast('Neuer Schlüssel erzeugt.');
-        renderConnections();
-      } }, 'Neuen Schlüssel erzeugen'))));
-  root.replaceChildren(...shell('/verbindungen', page));
-}
-
-// ---------------- Einstellungen ----------------
-
-export async function renderSettings() {
-  let s;
-  let status;
-  try {
-    [s, status] = await Promise.all([api('GET', '/api/settings'), api('GET', '/api/status')]);
-  } catch (err) {
-    toast(err.message, 'error');
-    return;
-  }
-  const save = async (patch, msg = 'Gespeichert.') => {
-    try {
-      const r = await api('PUT', '/api/settings', patch);
-      toast(msg);
-      return r;
-    } catch (err) {
-      toast(err.message, 'error');
-      return null;
-    }
-  };
-  const planTime = h('input', { type: 'time', id: 'plan-time', value: s.planTime });
-  const planOn = h('input', { type: 'checkbox', id: 'plan-on', checked: s.planEnabled });
-  const tz = h('input', { type: 'text', id: 'tz', value: s.timezone, autocomplete: 'off' });
-  const lan = h('input', { type: 'checkbox', id: 'lan', checked: s.lanAccess, disabled: s.hostOverride });
-  const lanInfo = h('div', { class: 'hint' });
-  const showLan = (urls) => {
-    lanInfo.replaceChildren(...(urls.length ? ['Auf dem iPhone in Safari öffnen (gleiches WLAN): ', ...urls.map((u, i) => [i ? ' oder ' : '', h('a', { href: u }, u)])] : ['Nur auf diesem Mac erreichbar.']));
-  };
-  showLan(s.lanUrls);
-  lan.addEventListener('change', async () => {
-    const r = await save({ lanAccess: lan.checked }, lan.checked ? 'Im WLAN freigegeben.' : 'Nur noch auf diesem Mac.');
-    if (r) setTimeout(() => api('GET', '/api/settings').then((x) => showLan(x.lanUrls)).catch(() => {}), 800);
-  });
-  const calSection = h('section', {}, h('h2', {}, 'Kalender im Dashboard'), h('p', { class: 'hint' }, 'Lade …'));
-  const curPw = h('input', { type: 'password', id: 'pw-cur', autocomplete: 'current-password' });
-  const newPw = h('input', { type: 'password', id: 'pw-new', autocomplete: 'new-password', minlength: '8' });
-  const passwordSection = status.hasPassword
-    ? h('section', {},
-      h('h2', {}, 'Passwort ändern'),
-      h('div', { class: 'row-2' }, h('div', { class: 'field' }, h('label', { for: 'pw-cur' }, 'Aktuelles Passwort'), curPw), h('div', { class: 'field' }, h('label', { for: 'pw-new' }, 'Neues Passwort'), newPw)),
-      h('div', { class: 'inline' }, h('button', { class: 'btn btn-quiet', type: 'button', onclick: async () => {
-        try {
-          await api('POST', '/api/password', { current: curPw.value, next: newPw.value });
-          curPw.value = '';
-          newPw.value = '';
-          toast('Passwort geändert. Andere Geräte sind jetzt abgemeldet.');
-        } catch (err) {
-          toast(err.message, 'error');
-        }
-      } }, 'Passwort ändern')))
-    : h('section', {},
-      h('h2', {}, 'Passwort für Safari und iPhone'),
-      h('p', { class: 'hint' }, 'In der Mac-App brauchst du kein Passwort. Wenn du das Dashboard auch in Safari oder auf dem iPhone öffnen willst, leg hier eins fest.'),
-      h('div', { class: 'row-2' }, h('div', { class: 'field' }, h('label', { for: 'pw-new' }, 'Neues Passwort'), newPw)),
-      h('div', { class: 'inline' }, h('button', { class: 'btn btn-quiet', type: 'button', onclick: async () => {
-        try {
-          await api('POST', '/api/setup/password', { password: newPw.value });
-          newPw.value = '';
-          toast('Passwort festgelegt.');
-          renderSettings();
-        } catch (err) {
-          toast(err.message, 'error');
-        }
-      } }, 'Passwort festlegen')));
-  const page = h('main', { class: 'page page-narrow' },
-    h('h1', {}, 'Einstellungen'),
-    h('div', { class: 'settings-list' },
-      h('section', {},
-        h('h2', {}, 'Berechtigungen'),
-        h('p', { class: 'hint' }, isMacApp ? 'Mikrofon, Mitteilungen, Standort, Dock und ob ich morgens von selbst starte.' : 'Mikrofon und Standort in diesem Browser.'),
-        h('div', { class: 'inline' }, h('a', { class: 'btn btn-quiet', href: '#/berechtigungen' }, 'Berechtigungen ansehen'))),
-      h('section', {},
-        h('h2', {}, 'Tagesplan'),
-        h('label', { class: 'check' }, planOn, h('span', {}, 'Jeden Morgen automatisch To-dos und Briefing erstellen')),
-        h('div', { class: 'inline' }, h('label', { for: 'plan-time' }, 'Frühestens um'), planTime, h('span', { class: 'hint' }, 'Ist dein Mac später erst an, kommt der Plan, sobald er läuft.')),
-        h('div', { class: 'inline' }, h('button', { class: 'btn btn-quiet', type: 'button', onclick: () => save({ planTime: planTime.value, planEnabled: planOn.checked }) }, 'Speichern'))),
-      calSection,
-      voiceSection(),
-      h('section', {},
-        h('h2', {}, 'Vom iPhone aus öffnen'),
-        h('label', { class: 'check' }, lan, h('span', {}, 'Im WLAN freigeben, damit du das Dashboard auch auf iPhone und iPad öffnen kannst')),
-        s.hostOverride ? h('p', { class: 'hint' }, 'Wird vom Server vorgegeben.') : '',
-        lanInfo,
-        h('p', { class: 'hint' }, 'Tipp: In Safari „Zum Home-Bildschirm“ wählen, dann sieht es aus wie eine App.')),
-      h('section', {},
-        h('h2', {}, 'Zeitzone'),
-        h('p', { class: 'hint' }, 'Nach dieser Zeitzone richten sich Tagesplan, Termine und To-dos. Zum Beispiel Europe/Berlin.'),
-        h('div', { class: 'inline' }, tz, h('button', { class: 'btn btn-quiet', type: 'button', onclick: () => save({ timezone: tz.value.trim() }) }, 'Speichern'))),
-      passwordSection,
-      h('section', {},
-        h('h2', {}, isMacApp ? 'Einrichtung' : 'Abmelden'),
-        h('div', { class: 'inline' }, isMacApp ? '' : h('button', { class: 'btn btn-quiet', type: 'button', onclick: async () => {
-          await api('POST', '/api/logout').catch(() => {});
-          go('/');
-        } }, 'Abmelden'), h('button', { class: 'btn btn-quiet', type: 'button', onclick: () => go('/einrichtung/willkommen') }, 'Einrichtung nochmal durchgehen')))));
-  root.replaceChildren(...shell('/einstellungen', page));
-  loadCalendarSettings(calSection);
-}
-
-async function loadCalendarSettings(section) {
-  const head = h('h2', {}, 'Kalender im Dashboard');
-  let data;
-  try {
-    data = await api('GET', '/api/calendars');
-  } catch (err) {
-    section.replaceChildren(head, h('p', { class: 'hint' }, err.status === 409 ? 'Der Kalender ist noch nicht verbunden.' : err.message));
-    return;
-  }
-  const checks = data.calendars.map((c) => {
-    const box = h('input', { type: 'checkbox', value: c.id, checked: c.selected });
-    const label = h('label', { class: 'check' }, box, h('span', {}, c.name, c.readOnly ? ' (nur lesen)' : ''));
-    if (c.color) label.style.setProperty('accent-color', c.color);
-    return { box, label, cal: c };
-  });
-  const writable = data.calendars.filter((c) => !c.readOnly);
-  const def = h('select', { id: 'def-cal' }, h('option', { value: '' }, 'Automatisch'), writable.map((c) => h('option', { value: c.id, selected: c.id === data.defaultCalendar }, c.name)));
-  section.replaceChildren(head,
-    h('p', { class: 'hint' }, 'Welche Kalender im Dashboard und beim Agenten auftauchen.'),
-    ...checks.map((x) => x.label),
-    h('div', { class: 'field' }, h('label', { for: 'def-cal' }, 'Neue Termine landen in'), def),
-    h('div', { class: 'inline' }, h('button', { class: 'btn btn-quiet', type: 'button', onclick: async () => {
-      try {
-        await api('PUT', '/api/calendars', { selected: checks.filter((x) => x.box.checked).map((x) => x.cal.id), defaultCalendar: def.value || null });
-        toast('Gespeichert.');
-      } catch (err) {
-        toast(err.message, 'error');
-      }
-    } }, 'Speichern')));
-}
-
-
 // ---------------- Stimme ----------------
 
-function voiceSection() {
+export function voiceSection() {
   const section = h('section', {});
   const fill = () => {
     const voices = rankedVoices();
