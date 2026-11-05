@@ -22,7 +22,7 @@ const SUGGESTIONS = [
 
 // Fragst du etwas, wird das passende Widget groß. Gibt es keins auf der Startseite, taucht ein neues auf.
 const TOOL_WIDGET = {
-  day_overview: 'termine', calendar_events: 'termine', calendar_is_free: 'termine', calendar_list: 'termine',
+  calendar_events: 'termine', calendar_is_free: 'termine', calendar_list: 'termine',
   calendar_create_event: 'termine', calendar_update_event: 'termine', calendar_delete_event: 'termine',
   todos_list: 'todos', todo_add: 'todos', todo_update: 'todos', todo_delete: 'todos',
   whatsapp_chats: 'whatsapp', whatsapp_read: 'whatsapp', whatsapp_suggest: 'whatsapp',
@@ -41,8 +41,8 @@ const TOOL_TEMP = { contacts_search: 'kontakte', notes_search: 'notizen', note_r
 // Schon beim Abschicken erraten, worum es geht (nur wenn es eindeutig ist)
 const TOPIC_WORDS = [
   ['termine', /\b(termin\w*|kalender|meeting|verabred\w*|was steht .*an|zeit am|zeit um|nachmittag zeit|vormittag zeit)\b/i],
-  ['whatsapp', /whats\s?app/i],
-  ['mail', /\b(e-?mails?|mails?|postfach)\b/i],
+  ['whatsapp', /whats\s?app|geschrieben|nachrichten?\b(?! an)|\bchat/i],
+  ['mail', /\b(e-?mails?|mails?|postfach|posteingang)\b/i],
   ['wetter', /\b(wetter|regen\w*|temperatur|schirm|sonnig|schnee)\b/i],
   ['todos', /\b(to-?dos?|aufgaben?)\b/i],
   ['erinnerungen', /\berinnerung\w*/i],

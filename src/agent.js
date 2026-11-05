@@ -213,7 +213,7 @@ export async function runAgent(ctx, { messages, purpose = 'chat', onEvent, strea
 // Das kleine Modell auf dem Mac hat wenig Platz – deshalb bekommt es nur die Werkzeuge, die zur Frage passen.
 const GROUPS = [
   { re: /was steht|überblick|tagesplan|heute an|wie sieht .* aus|was ist (heute|morgen) los|was (hab|habe) ich (heute|morgen)/i, tools: ['day_overview'] },
-  { re: /whats ?app|schreib|nachricht an|antworte|chat/i, tools: ['whatsapp_chats', 'whatsapp_read', 'whatsapp_suggest'] },
+  { re: /whats ?app|schreib|geschrieben|nachricht|antworte|chat/i, tools: ['whatsapp_chats', 'whatsapp_read', 'whatsapp_suggest'] },
   { re: /mail|e-mail|posteingang/i, tools: ['mail_list', 'mail_read', 'mail_suggest_reply', 'mail_suggest_new'] },
   { re: /termin|kalender|\bzeit\b|frei\b|verabred|treffen|eintragen/i, tools: ['calendar_is_free', 'calendar_events', 'calendar_create_event'] },
   // Tage und Uhrzeiten allein heißen noch nicht „Kalender“ – nur wenn sonst nichts passt („Was mach ich morgen?“)
@@ -230,7 +230,8 @@ const GROUPS = [
   { re: /kurzbefehl|shortcut/i, tools: ['shortcuts_list', 'shortcut_run'] },
   { re: /https?:\/\/|www\.|webseite|artikel/i, tools: ['web_read'] },
 ];
-const DEFAULT_APPLE_TOOLS = ['day_overview', 'todos_list', 'todo_add', 'calendar_events'];
+// Passt nichts eindeutig: ein bisschen von allem – nicht nur den Kalender
+const DEFAULT_APPLE_TOOLS = ['day_overview', 'weather_get', 'whatsapp_chats', 'mail_list', 'todos_list', 'todo_add'];
 const MAX_APPLE_TOOLS = 6;
 
 export function pickAppleTools(text, available) {
