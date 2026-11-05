@@ -11,7 +11,8 @@ FILE="sherpa-onnx-$VERSION-osx-universal2-shared.tar.bz2"
 URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/$VERSION/$FILE"
 
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+# Geht etwas schief, bleibt kein halbes Sprach-Programm liegen
+trap 'rc=$?; rm -rf "$TMP"; [ "$rc" -eq 0 ] || rm -rf "$OUT"' EXIT
 rm -rf "$OUT"
 mkdir -p "$OUT/bin" "$OUT/lib"
 
