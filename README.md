@@ -1,18 +1,20 @@
 # Assistent
 
-Dein persönlicher Agent für den Mac – dunkel, mit Orange und Grün, ohne Passwörter:
+Dein persönlicher Agent für den Mac – dunkel und bunt (jede App hat ihre Farbe), ohne Passwörter:
 
-- **Startseite aus Widgets:** Termine, To-dos, WhatsApp, Mail, Wetter, Erinnerungen und Plugin-Widgets – Reihenfolge und Auswahl unter Einstellungen → Startseite
+- **Startseite aus Widgets:** Termine, To-dos, WhatsApp, Mail, Wetter, Erinnerungen und Plugin-Widgets – Reihenfolge und Auswahl unter Einstellungen → Startseite. Oben dein Tag auf einen Blick.
+- **Widgets antworten mit:** Fragst du etwas, wird das passende Widget groß (Termine: die ganze Woche). Gibt es keins auf der Startseite (z. B. Kontakte, Notizen), taucht oben ein neues auf – mit dem X wieder weg.
 - **Ohne Anmeldungen:** Kalender, Erinnerungen, Kontakte und Mail kommen direkt vom Mac. Beim ersten Zugriff fragt macOS mit einem Fenster – ein Klick auf „Erlauben“. Jede App lässt sich unter Einstellungen → Apps wieder ausschalten.
 - **WhatsApp:** Chats lesen (über WhatsApp für den Mac), **drei Antwort-Vorschläge – antippen, und er schickt ab**. Fragt dich jemand „Hast du heute Zeit?“, landet ein To-do auf deiner Liste und du bekommst eine Mitteilung.
 - **Mail:** über die Mail-App lesen, Antworten vorschlagen, nach Antippen senden
 - **Sicher:** Senden, Löschen und Kurzbefehle passieren nur nach einem Tipp auf eine Karte. Alles bleibt auf deinem Mac.
 - **Gehirn:** Apple Intelligence direkt auf dem Mac (ab macOS 26, kostenlos, ohne Konto) – oder optional Claude mit API-Schlüssel
-- **Sprechen:** unten in der Leiste auf die orange Kugel tippen; der Lautsprecher daneben stellt ein, ob er nur mit Text oder mit Text + Stimme antwortet
+- **Sprechen:** unten in der Leiste auf die bunte Kugel tippen; der Lautsprecher daneben stellt ein, ob er nur mit Text oder mit Text + Stimme antwortet
+- **Stimmen:** Apple-Stimmen (auch Siri-Stimme), mit Hörprobe auswählen – dazu freie, natürliche **Piper-Stimmen aus dem Internet** (Hugging Face `rhasspy/piper-voices`, umgewandelt von `k2-fsa/sherpa-onnx` auf GitHub), die nach dem Laden ohne Internet auf dem Mac sprechen
 - **Karten im Gespräch:** Während er arbeitet, tauchen Karten auf – was er gerade macht und das Ergebnis
 - **Plugins** zum Hinzufügen, wenn du sie brauchst: Schlagzeilen, Kurzbefehle, Notizen, Musik, Webseiten lesen
 - **Tagesplan** jeden Morgen ab 6 Uhr – oder sobald dein Mac an ist
-- **Connector für Claude**: In der Claude-App auf dem Mac kannst du direkt mit deinem Assistenten arbeiten
+- **Mit Claude verbinden:** Einstellungen → Claude → ein Klick, in der Claude-App „Installieren“ – dann arbeitet Claude direkt mit deinem Assistenten (Erweiterung `.mcpb`)
 
 ---
 

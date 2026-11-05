@@ -10,4 +10,11 @@
 6. Danach fragt sie nach den Berechtigungen: Mikrofon, Mitteilungen, Standort, Dock und ob sie morgens von selbst starten soll.
 7. Kalender, Mail, WhatsApp, Erinnerungen und Kontakte brauchen kein Passwort: Beim ersten Zugriff fragt macOS mit einem kleinen Fenster – einfach „Erlauben“ klicken.
 
+### Neu in dieser Version
+
+- **Bunter:** Jede App hat ihre eigene Farbe, oben siehst du deinen Tag auf einen Blick.
+- **Fragst du etwas**, wird das passende Widget groß (bei Terminen die ganze Woche). Passt kein Widget, taucht oben ein neues auf – mit dem X klickst du es weg.
+- **Stimmen:** Unter Einstellungen → Stimme probehören und auswählen. Dazu freie, natürliche Stimmen aus dem Internet (Piper-Projekt) mit einem Klick laden.
+- **Mit Claude verbinden:** Einstellungen → Claude → „Mit Claude verbinden“, in der Claude-App auf „Installieren“ klicken – fertig.
+
 Du brauchst nichts weiter zu installieren – alles steckt in der App. Deine Daten liegen nur auf deinem Mac.

@@ -1,6 +1,6 @@
 // Sprechen und Vorlesen – mit den Stimmen, die im Browser eingebaut sind (Safari, Chrome, Edge).
 
-import { local, api } from './ui.js';
+import { local } from './ui.js';
 
 // ---------- Einstellungen (pro Gerät) ----------
 
@@ -87,7 +87,10 @@ let netVoices = [];
 let engineReady = false;
 async function loadNetVoices() {
   try {
-    const data = await api('GET', '/api/stimmen');
+    // direkt mit fetch: vor der Anmeldung soll das nichts auslösen
+    const res = await fetch('/api/stimmen', { credentials: 'same-origin', headers: { 'x-assistent': '1' } });
+    if (!res.ok) throw new Error(String(res.status));
+    const data = await res.json();
     engineReady = Boolean(data.engine);
     netVoices = engineReady ? data.voices.filter((v) => v.installed).map((v) => ({ name: v.name, lang: 'de-DE', voiceURI: `netz:${v.id}`, localService: true, quality: 'internet', male: v.gender === 'männlich', nativeScore: v.score, level: v.level })) : [];
   } catch {
