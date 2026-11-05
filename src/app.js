@@ -25,6 +25,7 @@ import { hashPassword, verifyPassword, Sessions, RateLimiter, randomToken, safeE
 import { Router, HttpError, sendJson, readJson, parseCookies, cookie, serveStatic, isLoopback, clientIp } from './web.js';
 import { nowWall, addDaysIso, isValidTimeZone, todayIso } from './lib/tz.js';
 import { createVoices, VoiceError } from './voices.js';
+import { createClaudeCode, ClaudeCodeError } from './claudecode.js';
 import { buildExtension, openInClaude, claudeAppInstalled, claudeLinkPossible, configEntry, writeConfigEntry, removeConfigEntry, hasConfigEntry } from './claude-app.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -78,6 +79,18 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
   ctx.actions = actions;
   const plugins = createPlugins(ctx);
   const voices = createVoices({ dataDir, root: ROOT, log });
+  // Claude als Gehirn über dein Claude-Konto: Werkzeuge kommen über die MCP-Schnittstelle, pro Antwort ein „Lauf“
+  const mcpRuns = new Map();
+  const claudeCode = createClaudeCode({
+    dataDir,
+    log,
+    getMcp: (runId, emit) => {
+      mcpRuns.set(runId, { emit });
+      return { url: `http://127.0.0.1:${app.port}/mcp/${stores.secrets.data.connectorToken}?lauf=${runId}`, done: () => mcpRuns.delete(runId) };
+    },
+  });
+  services.claudeCode = claudeCode;
+  claudeCode.status().catch(() => {});
   services.plugins = plugins;
 
   // Was passiert, wenn du einen Vorschlag antippst
@@ -380,7 +393,7 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
 
   r('GET', '/api/brain', () => ({ ...brainStatus(ctx), reasons: APPLE_REASONS, models: MODELS, hasKey: Boolean(stores.secrets.data.claudeApiKey) }));
   r('PUT', '/api/brain', (req, res, { body }) => {
-    if (!['auto', 'apple', 'claude'].includes(body.mode)) throw new HttpError(400, 'Unbekannte Auswahl.');
+    if (!['auto', 'apple', 'claude', 'konto'].includes(body.mode)) throw new HttpError(400, 'Unbekannte Auswahl.');
     stores.config.update((c) => {
       c.brain = { ...(c.brain || {}), mode: body.mode };
     });
@@ -597,6 +610,20 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
     res.end(wav);
   });
 
+  // ---------- Claude als Gehirn über dein Konto (ohne Schlüssel) ----------
+
+  r('GET', '/api/claude', async () => ({ ...(await claudeCode.status({ fresh: true })), brain: brainStatus(ctx) }));
+  r('POST', '/api/claude/verbinden', async () => {
+    if (!claudeLinkPossible()) throw new HttpError(409, 'Das geht nur auf dem Mac mit der App „Assistent“.');
+    const st = await claudeCode.connect();
+    if (st.installed && st.loggedIn) {
+      stores.config.update((c) => {
+        c.brain = { ...(c.brain || {}), mode: 'auto' };
+      });
+    }
+    return { ...st, brain: brainStatus(ctx) };
+  });
+
   // ---------- Claude-App: der Assistent als Erweiterung in Claude ----------
 
   const claudeStatus = () => {
@@ -730,7 +757,7 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
 
   function errorStatus(err) {
     if (err instanceof HttpError) return err.status;
-    if (err instanceof TodoError || err instanceof ServiceError || err instanceof ToolInputError || err instanceof MacError || err instanceof ActionError || err instanceof PluginError || err instanceof VoiceError) return err.status || 400;
+    if (err instanceof TodoError || err instanceof ServiceError || err instanceof ToolInputError || err instanceof MacError || err instanceof ActionError || err instanceof PluginError || err instanceof VoiceError || err instanceof ClaudeCodeError) return err.status || 400;
     if (err instanceof AppError || err instanceof BridgeError) return err.status || 409;
     if (err instanceof JxaError) return err.code === 'denied' ? 403 : 502;
     if (err instanceof ClaudeError) return err.status === 401 || err.status === 409 || err.status === 400 ? (err.status === 401 ? 400 : err.status) : 502;
@@ -790,11 +817,14 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
       return;
     }
     const transport = req.url.startsWith('/api/mcp-stdio') ? 'stdio' : 'http';
-    noteClaude(Array.isArray(msg) ? msg[0] : msg, transport);
+    // Lauf aus dem Dashboard (Claude als Gehirn) – sonst die Claude-App
+    const lauf = new URL(req.url, 'http://localhost').searchParams.get('lauf');
+    const run = lauf ? mcpRuns.get(lauf) || { emit: null } : null;
+    if (!run) noteClaude(Array.isArray(msg) ? msg[0] : msg, transport);
     if (Array.isArray(msg)) {
       const out = [];
       for (const m of msg) {
-        const r1 = await handleMcpMessage(m, ctx, { transport, headers: req.headers });
+        const r1 = await handleMcpMessage(m, ctx, { transport, headers: req.headers, run });
         if (r1.body) out.push(r1.body);
       }
       if (!out.length) {
@@ -803,7 +833,7 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
       } else sendJson(res, 200, out);
       return;
     }
-    const result = await handleMcpMessage(msg, ctx, { transport, headers: req.headers });
+    const result = await handleMcpMessage(msg, ctx, { transport, headers: req.headers, run });
     if (!result.body) {
       res.writeHead(202);
       res.end();

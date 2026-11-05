@@ -3,6 +3,7 @@
 import { h, ICONS, icon, api, toast } from './ui.js';
 import { speech, voiceSettings, rankedVoices, reloadVoices, voiceQuality, isMacApp, nativeCall, ears } from './voice.js';
 
+const NET_COLORS = ['teal', 'violet', 'pink', 'sky', 'amber', 'green', 'orange'];
 const QUALITY_LABEL = { premium: 'Premium', erweitert: 'Erweitert', siri: 'Siri', system: 'Systemstimme', internet: 'Aus dem Internet', standard: 'Standard', online: 'Online' };
 
 function playButton(label, onPlay) {
@@ -58,6 +59,11 @@ export async function voicePage() {
   const mineHint = h('p', { class: 'hint' });
   const choose = (uri) => {
     voiceSettings.voiceURI = uri;
+    // Stimme ausgesucht = er soll damit auch antworten
+    if (voiceSettings.mode !== 'stimme') {
+      voiceSettings.mode = 'stimme';
+      seg.querySelectorAll('button').forEach((b, i) => b.setAttribute('aria-pressed', i === 1 ? 'true' : 'false'));
+    }
     drawMine();
     speech.test();
   };
@@ -92,6 +98,120 @@ export async function voicePage() {
     h('div', { class: 'panel-head' }, h('span', { class: 'tile', html: ICONS.wave }), h('h3', {}, 'Deine Stimmen')),
     mineHint, mineList);
 
+  // ---------- Aus dem Internet ----------
+  const netGrid = h('div', { class: 'net-grid' });
+  const netNote = h('p', { class: 'hint' });
+  let netData = { engine: false, voices: [] };
+  let polling = null;
+
+  async function refreshNet() {
+    try {
+      netData = await api('GET', '/api/stimmen');
+    } catch (err) {
+      netNote.textContent = err.message;
+      return;
+    }
+    drawNet();
+    const busy = netData.voices.some((v) => v.job && (v.job.state === 'laden' || v.job.state === 'entpacken'));
+    if (busy && !polling) {
+      polling = setInterval(async () => {
+        if (!netGrid.isConnected) {
+          clearInterval(polling);
+          polling = null;
+          return;
+        }
+        const before = new Set(netData.voices.filter((v) => v.installed).map((v) => v.id));
+        await refreshNet();
+        const fresh = netData.voices.filter((v) => v.installed && !before.has(v.id));
+        if (fresh.length) {
+          await reloadVoices();
+          toast(`${fresh.map((v) => v.name).join(', ')} ist da – tippe auf „Benutzen“.`);
+        }
+      }, 800);
+    } else if (!busy && polling) {
+      clearInterval(polling);
+      polling = null;
+    }
+  }
+
+  function drawNet() {
+    netNote.textContent = netData.engine
+      ? 'Freie, natürlich klingende Stimmen. Erst probehören, dann laden – danach sprechen sie auf deinem Mac ohne Internet.'
+      : 'Stimmen aus dem Internet gibt es in der Mac-App „Assistent“. Probehören geht trotzdem.';
+    netGrid.replaceChildren(...netData.voices.map((v, i) => {
+      const color = NET_COLORS[i % NET_COLORS.length];
+      const job = v.job;
+      const busy = job && (job.state === 'laden' || job.state === 'entpacken');
+      const uri = `netz:${v.id}`;
+      const actions = h('div', { class: 'row-actions' },
+        playButton(`Hörprobe von ${v.name}`, () => speech.sample(`/api/stimmen/${encodeURIComponent(v.id)}/probe`).catch(() => toast('Die Hörprobe kam gerade nicht an.', 'error'))));
+      if (v.installed) {
+        const using = voiceSettings.voiceURI === uri;
+        actions.append(
+          h('button', { class: `btn btn-small${using ? ' btn-quiet' : ''}`, type: 'button', disabled: using, onclick: async () => {
+            await reloadVoices();
+            choose(uri);
+            drawNet();
+          } }, using ? icon('check') : '', using ? 'In Benutzung' : 'Benutzen'),
+          h('button', { class: 'link-btn', type: 'button', onclick: async () => {
+            try {
+              await api('DELETE', `/api/stimmen/${encodeURIComponent(v.id)}`);
+              if (voiceSettings.voiceURI === uri) voiceSettings.voiceURI = '';
+              await reloadVoices();
+              toast(`${v.name} gelöscht.`);
+              refreshNet();
+            } catch (err) {
+              toast(err.message, 'error');
+            }
+          } }, 'Löschen'));
+      } else if (!busy) {
+        actions.append(h('button', { class: 'btn btn-small', type: 'button', disabled: !netData.engine, onclick: async (e) => {
+          e.currentTarget.disabled = true;
+          try {
+            await api('POST', `/api/stimmen/${encodeURIComponent(v.id)}/laden`);
+            refreshNet();
+          } catch (err) {
+            toast(err.message, 'error');
+            e.currentTarget.disabled = false;
+          }
+        } }, icon('download'), `Laden · ca. ${v.mb} MB`));
+      }
+      const pct = job?.total ? Math.min(100, Math.round((job.received / job.total) * 100)) : 0;
+      const progress = busy ? h('div', { class: 'stack-tight' },
+        h('div', { class: 'progress' }, h('i')),
+        h('p', { class: 'hint' }, job.state === 'entpacken' ? 'Fast fertig – packe aus …' : `Lade … ${pct} % (${Math.round(job.received / 1048576)} von ${Math.round(job.total / 1048576)} MB)`)) : '';
+      const bar = progress ? progress.querySelector('.progress') : null;
+      if (bar) bar.style.setProperty('--p', `${job.state === 'entpacken' ? 100 : pct}%`);
+      return h('article', { class: `net-voice ${color}` },
+        h('div', { class: 'top' }, h('span', { class: 'tile', html: ICONS.wave }), h('div', {}, h('h3', {}, v.name), h('small', {}, `${v.gender} · ${v.level}`)), v.installed ? h('span', { class: 'chip ok' }, icon('check'), 'Geladen') : ''),
+        h('p', {}, v.about),
+        progress,
+        job?.state === 'fehler' ? h('p', { class: 'c-error' }, job.error) : '',
+        actions);
+    }));
+  }
+  refreshNet();
+  const net = h('section', { class: 'panel tinted teal' },
+    h('div', { class: 'panel-head' }, h('span', { class: 'tile', html: ICONS.download }), h('h3', {}, 'Stimmen zum Selberladen')),
+    netNote, netGrid,
+    h('p', { class: 'source-note' }, 'Herkunft: Piper-Stimmen von ',
+      h('a', { href: 'https://huggingface.co/rhasspy/piper-voices', target: '_blank', rel: 'noopener' }, 'Hugging Face (rhasspy/piper-voices)'),
+      ', umgewandelt vom Open-Source-Projekt ',
+      h('a', { href: 'https://github.com/k2-fsa/sherpa-onnx', target: '_blank', rel: 'noopener' }, 'sherpa-onnx auf GitHub'),
+      '. Geladen wird nur von diesen Seiten und nur verschlüsselt. Dein Text verlässt beim Sprechen nie deinen Mac.'));
+
+  // ---------- Vorschläge: wo es gute Stimmen gibt ----------
+  const tip = (color, ic, name, text, href, label) => h('article', { class: `net-voice ${color}` },
+    h('div', { class: 'top' }, h('span', { class: 'tile', html: ICONS[ic] }), h('div', {}, h('h3', {}, name))),
+    h('p', {}, text),
+    href ? h('div', { class: 'row-actions' }, h('a', { class: 'btn btn-quiet btn-small', href, target: '_blank', rel: 'noopener' }, label)) : '');
+  const tips = h('section', { class: 'panel tinted violet' },
+    h('div', { class: 'panel-head' }, h('span', { class: 'tile', html: ICONS.sparkle }), h('h3', {}, 'Wo es gute Stimmen gibt')),
+    h('div', { class: 'net-grid' },
+      tip('pink', 'speaker', 'Siri-Stimmen von Apple', 'Kostenlos und am natürlichsten auf dem Mac. In den Systemeinstellungen einstellen (siehe unten) – ich nehme sie automatisch.', null),
+      tip('teal', 'wave', 'Piper (Open Source)', 'Kostenlose Stimmen, die ohne Internet laufen. Oben direkt ladbar – alle Hörproben gibt es auf der Piper-Seite.', 'https://rhasspy.github.io/piper-samples/', 'Hörproben ansehen'),
+      tip('amber', 'globe', 'ElevenLabs', 'Sehr realistische KI-Stimmen, auch eigene Stimme. Kostet etwas und braucht ein Konto – sag Bescheid, wenn ich das anbinden soll.', 'https://elevenlabs.io', 'Seite öffnen')));
+
   // ---------- Von Apple ----------
   const apple = h('section', { class: 'panel tinted amber' },
     h('div', { class: 'panel-head' }, h('span', { class: 'tile', html: ICONS.sparkle }), h('h3', {}, 'So klingt er richtig echt')),
@@ -112,7 +232,7 @@ export async function voicePage() {
   return [
     h('h2', {}, 'Stimme'),
     h('p', { class: 'lead' }, 'Wie dein Assistent klingt. Tippe auf ▶ zum Probehören. Unten in der Leiste schaltest du mit dem Lautsprecher zwischen „Nur Text“ und „Text + Stimme“ um.'),
-    answers, apple, mine,
+    answers, mine, net, tips, apple,
     h('p', { class: 'hint' }, 'Diese Einstellungen gelten für dieses Gerät.'),
   ];
 }

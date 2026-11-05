@@ -10,11 +10,11 @@ Dein persönlicher Agent für den Mac – locker, dunkel und bunt (jede App hat 
 - **Sicher:** Senden, Löschen und Kurzbefehle passieren nur nach einem Tipp auf eine Karte. Alles bleibt auf deinem Mac.
 - **Gehirn:** Apple Intelligence direkt auf dem Mac (ab macOS 26, kostenlos, ohne Konto) – oder optional Claude mit API-Schlüssel
 - **Sprechen:** unten in der Leiste auf die bunte Kugel tippen; der Lautsprecher daneben stellt ein, ob er nur mit Text oder mit Text + Stimme antwortet
-- **Stimmen:** Apple-Stimmen mit Hörprobe auswählen – am natürlichsten mit einer Siri-Stimme (Systemeinstellungen → Bedienungshilfen → Gesprochene Inhalte)
+- **Stimmen:** Apple-Stimmen (am natürlichsten: Siri-Stimme) mit Hörprobe auswählen, freie Piper-Stimmen selbst laden, dazu Tipps für gute Stimmen-Quellen
 - **Karten im Gespräch:** Während er arbeitet, tauchen Karten auf – was er gerade macht und das Ergebnis
 - **Plugins** zum Hinzufügen, wenn du sie brauchst: Schlagzeilen, Kurzbefehle, Notizen, Musik, Webseiten lesen
 - **Tagesplan** jeden Morgen ab 6 Uhr – oder sobald dein Mac an ist
-- **Mit Claude verbinden:** Einstellungen → Claude → ein Klick, in der Claude-App „Installieren“ – dann arbeitet Claude direkt mit deinem Assistenten (Erweiterung `.mcpb`)
+- **Claude als Gehirn – ohne Schlüssel:** „Mit Claude verbinden“ klicken, im Browser bei Claude anmelden und „Erlauben“. Der Assistent richtet dafür einmal das offizielle Claude Code ein und denkt dann mit deinem Claude-Abo – mit allen Werkzeugen (Kalender, WhatsApp, Mail …). Zusätzlich lässt er sich als Erweiterung in die Claude-App holen.
 
 ---
 

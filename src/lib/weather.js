@@ -73,7 +73,7 @@ export async function forecast({ latitude, longitude }) {
     hourly: 'temperature_2m,precipitation_probability,weather_code',
     daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset',
     timezone: 'auto',
-    forecast_days: '2',
+    forecast_days: '3',
     wind_speed_unit: 'kmh',
   });
   const d = await getJson(`${forecastBase()}/v1/forecast?${params}`);
@@ -103,7 +103,8 @@ export async function forecast({ latitude, longitude }) {
     },
     today: day(0),
     tomorrow: day(1),
-    hours: hours.slice(0, 48),
+    days: [day(0), day(1), day(2)].filter((x) => x.date),
+    hours: hours.slice(0, 72),
     timezone: d.timezone,
   };
 }

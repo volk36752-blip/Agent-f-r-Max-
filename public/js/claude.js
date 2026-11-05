@@ -1,38 +1,50 @@
-// Mit Claude verbinden: ein Klick, Claude fragt „Installieren?“ – fertig. Ohne Schlüssel, ohne Passwort.
+// Mit Claude verbinden: ein Klick – im Browser bei Claude anmelden und „Erlauben“ – fertig.
+// Danach denkt der Assistent mit Claude und nutzt dein Claude-Konto. Ohne API-Schlüssel.
 
 import { api, toast } from './ui.js';
 
 let watcher = null;
 
-// Wartet bis zu 3 Minuten, bis Claude sich zum ersten Mal meldet
-function watch(before, onLinked) {
+const MESSAGES = {
+  installieren: 'Ich richte Claude auf deinem Mac ein – das dauert einen Moment …',
+  anmelden: 'Gleich öffnet sich dein Browser: bei Claude anmelden und auf „Erlauben“ klicken.',
+};
+
+// onState({ installed, loggedIn, job }) wird bei jeder Änderung aufgerufen
+export async function connectClaude({ onState } = {}) {
+  let st = await api('POST', '/api/claude/verbinden');
+  onState?.(st);
+  if (st.installed && st.loggedIn) {
+    toast('Claude ist dein Gehirn. 🎉');
+    return st;
+  }
+  let shown = '';
+  const say = (s) => {
+    const msg = s.job?.state === 'fehler' ? s.job.error : MESSAGES[s.job?.state];
+    if (msg && msg !== shown) {
+      shown = msg;
+      toast(msg, s.job?.state === 'fehler' ? 'error' : 'ok');
+    }
+  };
+  say(st);
   clearInterval(watcher);
-  const until = Date.now() + 180000;
+  const until = Date.now() + 10 * 60000;
   watcher = setInterval(async () => {
     if (Date.now() > until) return clearInterval(watcher);
     try {
-      const info = await api('GET', '/api/claude-app');
-      if ((info.lastSeen || 0) > before) {
-        clearInterval(watcher);
-        toast('Verbunden! 🎉 Frag Claude jetzt einfach – zum Beispiel „Was steht heute an?“');
-        onLinked?.(info);
-      }
+      st = await api('GET', '/api/claude');
     } catch {
-      /* nächstes Mal */
+      return undefined;
     }
+    onState?.(st);
+    say(st);
+    if (st.installed && st.loggedIn) {
+      clearInterval(watcher);
+      await api('PUT', '/api/brain', { mode: 'auto' }).catch(() => {});
+      toast('Verbunden! 🎉 Claude ist jetzt dein Gehirn – frag einfach unten.');
+      onState?.({ ...st, done: true });
+    } else if (st.job?.state === 'fehler') clearInterval(watcher);
     return undefined;
-  }, 2500);
-}
-
-export async function connectClaude({ onLinked, onMissing } = {}) {
-  const before = (await api('GET', '/api/claude-app').catch(() => ({}))).lastSeen || 0;
-  const r = await api('POST', '/api/claude-app/install');
-  if (r.opened) {
-    toast('Claude ist offen – klick dort auf „Installieren“. Fertig!');
-    watch(before, onLinked);
-  } else {
-    toast('Ich habe die Claude-App nicht gefunden. Lade sie zuerst, dann nochmal klicken.', 'error');
-    onMissing?.();
-  }
-  return r;
+  }, 2000);
+  return st;
 }

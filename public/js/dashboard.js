@@ -11,7 +11,7 @@ const root = () => document.getElementById('app');
 
 const APP_NAMES = { kalender: 'Kalender', whatsapp: 'WhatsApp', mail: 'Mail', erinnerungen: 'Erinnerungen', wetter: 'Wetter', todos: 'To-do-Liste' };
 const SETTINGS_KIND = { kalender: 'calendar', erinnerungen: 'reminders', mail: 'automation', whatsapp: 'appdata', kontakte: 'contacts' };
-const BRAIN_LABEL = { apple: 'Apple Intelligence', claude: 'Claude' };
+const BRAIN_LABEL = { apple: 'Apple Intelligence', claude: 'Claude', konto: 'Claude' };
 const SUGGESTIONS = [
   ['Was steht heute an?', 'calendar', 'violet'],
   ['Hab ich morgen Nachmittag Zeit?', 'today', 'sky'],
@@ -151,20 +151,18 @@ function renderHero(clockOnly = false) {
   st.els.date = date;
   const brain = d.brain?.active;
   const badge = h('a', { class: `brain-badge ${brain ? 'on' : 'warn'}`, href: '#/einstellungen/gehirn', title: 'Gehirn des Agenten' }, h('span', { class: 'led' }), brain ? BRAIN_LABEL[brain] : 'Ohne Gehirn');
-  const linked = Boolean(d.claudeApp?.lastSeen);
-  // Ein Klick: Claude öffnet sich und fragt „Installieren?“ – ohne Schlüssel
-  const claude = d.claudeApp?.possible ? (linked
-    ? h('a', { class: 'claude-badge on', href: '#/einstellungen/claude', title: 'Claude ist dein Gehirn' }, icon('sparkle'), 'Mit Claude verbunden')
-    : h('button', { class: 'claude-badge', type: 'button', title: 'Mit Claude verbinden', onclick: async (e) => {
-      const btn = e.currentTarget;
-      btn.disabled = true;
-      try {
-        await connectClaude({ onLinked: (info) => { st.data.claudeApp = { ...st.data.claudeApp, lastSeen: info.lastSeen }; renderHero(); }, onMissing: () => window.open('https://claude.ai/download', '_blank', 'noopener') });
-      } catch (err) {
-        toast(err.message, 'error');
-      }
-      btn.disabled = false;
-    } }, icon('sparkle'), 'Mit Claude verbinden')) : '';
+  // Ein Klick: im Browser bei Claude anmelden und erlauben – dann ist Claude das Gehirn
+  const linked = d.brain?.active === 'konto';
+  const claude = d.claudeApp?.possible && !linked ? h('button', { class: 'claude-badge', type: 'button', title: 'Claude als Gehirn – ohne Schlüssel', onclick: async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    try {
+      await connectClaude({ onState: (x) => { if (x.done) refreshBase(); } });
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+    btn.disabled = false;
+  } }, icon('sparkle'), 'Mit Claude verbinden') : '';
   const macChip = !d.mac ? h('span', { class: 'chip off', title: 'Kalender, WhatsApp & Co. ohne Passwort gibt es nur in der Mac-App.' }, icon('laptop'), 'Browser') : '';
   const b = d.briefing;
   const plan = d.plan || {};
@@ -307,7 +305,7 @@ function renderEntry(entry) {
     } else {
       const render = RENDERERS[id] || (id.startsWith('plugin:') ? PLUGIN_RENDERERS[id.slice(7)] : null);
       try {
-        el.replaceChildren(...(render ? render(w, r.data, entry.big) : [widgetHead(w), h('div', { class: 'w-body' }, h('p', { class: 'w-empty' }, 'Bereit.'))]));
+        el.replaceChildren(...(render ? render(w, r.data, entry.big, entry) : [widgetHead(w), h('div', { class: 'w-body' }, h('p', { class: 'w-empty' }, 'Bereit.'))]));
       } catch (err) {
         el.replaceChildren(widgetHead(w), h('div', { class: 'w-body' }, h('p', { class: 'w-empty' }, err.message)));
       }
@@ -327,22 +325,23 @@ function paintFocus() {
 
 // Fragst du etwas, ploppt das passende Widget groß über den anderen auf – zum Wegklicken.
 // Gibt es dafür kein Widget auf der Startseite (z. B. Kontakte), ploppt ein neues auf.
-function focusWidget(id, { byAgent = false } = {}) {
+function focusWidget(id, { byAgent = false, day = null } = {}) {
   const def = st.widgets.get(id)?.w || st.data?.widgets?.find((x) => x.id === id);
   if (!def) return;
-  openTemp(def, { byAgent });
+  openTemp(def, { byAgent, day });
 }
 
-function openTemp(def, { byAgent = true, cards = null } = {}) {
+function openTemp(def, { byAgent = true, cards = null, day = null } = {}) {
   // immer nur eins auf einmal
   for (const other of [...st.temps.values()]) if (other.w.id !== def.id) closeTemp(other, { quiet: true });
   let entry = st.temps.get(def.id);
   if (!entry) {
     const el = h('section', { class: `widget popout focus ${def.color || 'orange'}`, dataset: { widget: def.id }, role: 'dialog', 'aria-label': def.title });
-    entry = { w: def, el, temp: true, big: true, byAgent };
+    entry = { w: def, el, temp: true, big: true, byAgent, day };
     st.temps.set(def.id, entry);
     st.els.popLayer.append(el);
   } else {
+    if (day) entry.day = day;
     entry.el.classList.remove('ping');
     void entry.el.offsetWidth;
     entry.el.classList.add('ping');
@@ -372,6 +371,13 @@ function closeAllTemps() {
 // Neue Frage: was der Agent letztes Mal aufgemacht hat, geht wieder zu
 function resetAgentFocus() {
   for (const e of [...st.temps.values()]) if (e.byAgent) closeTemp(e, { quiet: true });
+}
+
+// Um welchen Tag geht es? („Wie wird das Wetter morgen?“)
+function guessDay(text) {
+  if (/übermorgen/i.test(text)) return 2;
+  if (/\bmorgen\b/i.test(text) && !/guten morgen/i.test(text)) return 1;
+  return null;
 }
 
 function guessTopic(text) {
@@ -430,7 +436,7 @@ function eventTime(e, day) {
 }
 
 const RENDERERS = {
-  termine(w, d, big) {
+  termine(w, d, big, entry) {
     const today = st.data.now.date;
     const n = nowLocal();
     const nowMin = minutesOf(`${n.date}T${n.time}`);
@@ -448,7 +454,7 @@ const RENDERERS = {
       const week = d.days.reduce((sum, x) => sum + x.events.length, 0);
       return [
         widgetHead(w, [h('span', { class: 'chip' }, `${week} in den nächsten 7 Tagen`)]),
-        h('div', { class: 'w-body' }, h('div', { class: 'days' }, d.days.map((day, i) => h('div', { class: `day${i === 0 ? ' today' : ''}` },
+        h('div', { class: 'w-body' }, h('div', { class: 'days' }, d.days.map((day, i) => h('div', { class: `day${i === (entry?.day ?? 0) ? ' today' : ''}` },
           h('h3', {}, i === 0 ? 'Heute' : i === 1 ? 'Morgen' : WEEKDAY.format(dateFromIso(day.date)), h('small', {}, `${Number(day.date.slice(8))}.${Number(day.date.slice(5, 7))}.`)),
           day.events.length ? day.events.map((e) => h('button', { class: 'ev', type: 'button', onclick: () => showEvent(e) }, h('b', {}, eventTime(e, day.date)), h('span', {}, e.title))) : h('p', { class: 'free' }, 'frei'))))),
       ];
@@ -484,8 +490,23 @@ const RENDERERS = {
     ];
   },
 
-  wetter(w, d, big) {
+  wetter(w, d, big, entry) {
     const n = nowLocal();
+    const want = entry?.day || 0;
+    const target = (d.days || [])[want];
+    // Fragst du nach morgen, steht morgen groß da – mit dem Verlauf über den Tag
+    if (big && want && target) {
+      const hours = (d.hours || []).filter((x) => x.time.slice(0, 10) === target.date && Number(x.time.slice(11, 13)) >= 6 && Number(x.time.slice(11, 13)) % 2 === 0);
+      return [
+        widgetHead(w, [h('span', { class: 'chip' }, d.place || '')]),
+        h('div', { class: 'w-body' },
+          h('p', { class: 'hint' }, want === 1 ? 'Morgen' : 'Übermorgen', ` · ${WEEKDAY.format(dateFromIso(target.date))}`),
+          h('div', { class: 'weather-now' }, icon(target.icon), h('span', { class: 'temp' }, `${Math.round(target.max)}°`),
+            h('div', {}, h('p', { class: 'c-title' }, target.text), h('p', { class: 'c-sub' }, `${Math.round(target.min)}° bis ${Math.round(target.max)}°${target.rainChance ? ` · Regen ${target.rainChance} %` : ' · kein Regen'}${target.sunrise ? ` · ☀ ${target.sunrise}–${target.sunset}` : ''}`))),
+          hours.length ? h('div', { class: 'weather-hours' }, hours.map((x) => h('div', {}, h('span', {}, x.time.slice(11, 13)), icon(x.icon), h('b', {}, `${Math.round(x.temp)}°`), x.rainChance ? h('span', {}, `${x.rainChance} %`) : ''))) : '',
+          h('div', { class: 'weather-tomorrow' }, icon(d.current?.icon), h('span', {}, `Jetzt: ${Math.round(d.current?.temp)}°, ${d.current?.text}`))),
+      ];
+    }
     const upcoming = (d.hours || []).filter((x) => x.time.slice(0, 13) >= `${n.date}T${n.time.slice(0, 2)}`);
     const hours = big ? upcoming.slice(0, 12) : upcoming.filter((x, i) => i % 2 === 0).slice(0, 6);
     const t = d.tomorrow;
@@ -993,12 +1014,16 @@ export async function sendChat(text, display, { spoken = false } = {}) {
   resetAgentFocus();
   const focused = new Set();
   const turnTemps = {};
+  const day = guessDay(message);
+  // Was du ausdrücklich nennst (Wetter, WhatsApp, Mail …), bleibt offen – kein anderes Widget drängelt sich vor
+  const asked = guessTopic(message);
   const focusFor = (id) => {
     if (!id || focused.has(id)) return;
+    if (asked && id !== asked) return;
     focused.add(id);
-    focusWidget(id, { byAgent: true });
+    focusWidget(id, { byAgent: true, day });
   };
-  focusFor(guessTopic(message));
+  focusFor(asked);
 
   let say = null;
   let sayText = '';
