@@ -35,7 +35,8 @@ COOKIE="$(curl -fsS -o /dev/null -D - "$URL/api/app-login?key=$KEY" | tr -d '\r'
 STATUS="$(curl -fsS -H "Cookie: $COOKIE" "$URL/api/status")"
 echo "$STATUS" | grep -q '"loggedIn":true' || fail "Nicht angemeldet: $STATUS"
 echo "  ✓ App meldet sich ohne Passwort an"
-curl -fsS "$URL/" | grep -q '<div id="app">' || fail "Die Oberfläche wird nicht ausgeliefert"
+PAGE="$(curl -fsS "$URL/" || true)"
+grep -q 'id="app"' <<<"$PAGE" || fail "Die Oberfläche wird nicht ausgeliefert"
 echo "  ✓ Oberfläche wird ausgeliefert"
 
 sleep 6
