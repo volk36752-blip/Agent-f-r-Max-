@@ -55,16 +55,28 @@ APP="$BUILD/Assistent.app"
 rm -rf "$APP" "$BUILD/obj"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$BUILD/obj"
 
+# Apple Intelligence (Foundation Models) gibt es erst ab dem macOS-26-SDK. Die App startet trotzdem
+# auf älteren Macs: Das Framework wird nur „schwach“ eingebunden.
+SDK="$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || true)"
+AI_FLAGS=()
+if [ -n "$SDK" ] && [ -d "$SDK/System/Library/Frameworks/FoundationModels.framework" ]; then
+  AI_FLAGS=(-Xfrontend -disable-autolink-framework -Xfrontend FoundationModels -Xlinker -weak_framework -Xlinker FoundationModels)
+  echo "       Mit Apple Intelligence (SDK: $(basename "$SDK"))"
+else
+  echo "       Ohne Apple Intelligence (SDK zu alt: $(basename "${SDK:-unbekannt}"))"
+fi
+
 # Fehler von swiftc als Hinweise in GitHub anzeigen
 compile() {
   local out="$1"; shift
-  local log="$BUILD/obj/swiftc.log"
-  if ! $SWIFTC -O -o "$out" "$DIR/mac/main.swift" \
+  local log="$BUILD/obj/swiftc-$(basename "$out").log"
+  if ! $SWIFTC -O -o "$out" "$DIR"/mac/*.swift \
       -framework Cocoa -framework WebKit -framework AVFoundation -framework Speech \
-      -framework UserNotifications -framework CoreLocation "$@" >"$log" 2>&1; then
+      -framework UserNotifications -framework CoreLocation -framework EventKit -framework Contacts \
+      -lsqlite3 ${AI_FLAGS[@]+"${AI_FLAGS[@]}"} "$@" >"$log" 2>&1; then
     cat "$log"
     if [ -n "${GITHUB_ACTIONS:-}" ]; then
-      grep -E '^[^ ]+\.swift:[0-9]+:[0-9]+: error:' "$log" | sed -E 's#^([^:]+):([0-9]+):([0-9]+): error: (.*)$#::error file=mac/main.swift,line=\2,col=\3::\4#' || true
+      grep -E '^[^ ]+\.swift:[0-9]+:[0-9]+: error:' "$log" | sed -E 's#^.*/(mac/[^:]+):([0-9]+):([0-9]+): error: (.*)$#::error file=\1,line=\2,col=\3::\4#' || true
     fi
     return 1
   fi
@@ -131,6 +143,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSSpeechRecognitionUsageDescription</key><string>Damit der Assistent versteht, was du sagst.</string>
   <key>NSLocationUsageDescription</key><string>Damit der Assistent das Wetter für deinen Ort zeigt.</string>
   <key>NSLocationWhenInUseUsageDescription</key><string>Damit der Assistent das Wetter für deinen Ort zeigt.</string>
+  <key>NSCalendarsUsageDescription</key><string>Damit der Assistent deine Termine zeigt, freie Zeit prüft und Termine einträgt.</string>
+  <key>NSCalendarsFullAccessUsageDescription</key><string>Damit der Assistent deine Termine zeigt, freie Zeit prüft und Termine einträgt.</string>
+  <key>NSRemindersUsageDescription</key><string>Damit der Assistent deine Erinnerungen zeigt und neue anlegt.</string>
+  <key>NSRemindersFullAccessUsageDescription</key><string>Damit der Assistent deine Erinnerungen zeigt und neue anlegt.</string>
+  <key>NSContactsUsageDescription</key><string>Damit der Assistent Telefonnummern und Mail-Adressen findet, wenn du jemandem schreiben willst.</string>
+  <key>NSAppleEventsUsageDescription</key><string>Damit der Assistent deine Mails, Notizen und Musik für dich bedienen kann.</string>
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsLocalNetworking</key><true/>

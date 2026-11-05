@@ -16,6 +16,7 @@ import AVFoundation
 import Speech
 import UserNotifications
 import CoreLocation
+import ApplicationServices
 
 final class AssistentApp: NSObject, NSApplicationDelegate, NSMenuItemValidation, NSWindowDelegate,
     WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, AVSpeechSynthesizerDelegate,
@@ -49,6 +50,7 @@ final class AssistentApp: NSObject, NSApplicationDelegate, NSMenuItemValidation,
     var loadFailures = 0
     var planTimer: Timer?
     var leaving = false
+    var bridge: MacBridge?
 
     // Vorlesen
     let synthesizer = AVSpeechSynthesizer()
@@ -102,6 +104,7 @@ final class AssistentApp: NSObject, NSApplicationDelegate, NSMenuItemValidation,
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        bridge?.stop()
         synthesizer.stopSpeaking(at: .immediate)
         stopListening(cancel: true)
         stopOwnServer()
@@ -401,9 +404,18 @@ final class AssistentApp: NSObject, NSApplicationDelegate, NSMenuItemValidation,
     }
 
     func loadDashboard() {
+        startBridge()
         var comps = URLComponents(url: baseURL.appendingPathComponent("api/app-login"), resolvingAgainstBaseURL: false)!
         comps.queryItems = [URLQueryItem(name: "key", value: appKey())]
         webView.load(URLRequest(url: comps.url!))
+    }
+
+    /// Verbindung zum Assistenten: Kalender, Kontakte, WhatsApp, Apple Intelligence …
+    func startBridge() {
+        guard bridge == nil, let url = URL(string: "http://127.0.0.1:\(port)/") else { return }
+        let b = MacBridge(baseURL: url, key: appKey())
+        bridge = b
+        b.start()
     }
 
     func openRoute(_ route: String) {
@@ -763,6 +775,10 @@ final class AssistentApp: NSObject, NSApplicationDelegate, NSMenuItemValidation,
             reply(addToDock() ? "granted" : "unknown")
         case "background":
             reply(setBackground(true) ? "granted" : "unknown")
+        case "accessibility":
+            let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+            reply(AXIsProcessTrustedWithOptions(opts) ? "granted" : "denied")
+            openPrivacySettings("accessibility")
         default:
             reply("unavailable")
         }
@@ -774,6 +790,13 @@ final class AssistentApp: NSObject, NSApplicationDelegate, NSMenuItemValidation,
             "speech": "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition",
             "location": "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices",
             "notifications": "x-apple.systempreferences:com.apple.preference.notifications",
+            "calendar": "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars",
+            "reminders": "x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders",
+            "contacts": "x-apple.systempreferences:com.apple.preference.security?Privacy_Contacts",
+            "automation": "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation",
+            "accessibility": "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+            "appdata": "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+            "privacy": "x-apple.systempreferences:com.apple.preference.security?Privacy",
         ]
         if let s = anchors[kind], let url = URL(string: s) { NSWorkspace.shared.open(url) }
     }
@@ -949,6 +972,9 @@ final class AssistentApp: NSObject, NSApplicationDelegate, NSMenuItemValidation,
             send(["id": id, "type": "background", "ok": ok, "on": backgroundInstalled])
         case "openSettings":
             openPrivacySettings((body["kind"] as? String) ?? "")
+            send(["id": id, "type": "ok"])
+        case "showDataFolder":
+            showFolder(nil)
             send(["id": id, "type": "ok"])
         case "appInfo":
             send(["id": id, "type": "appInfo",

@@ -1,4 +1,5 @@
-# Baut bei jeder Änderung die fertige Mac-App und stellt sie als Download bereit:
+# Baut bei jeder Änderung die fertige Mac-App, prüft sie auf macOS 26 und macOS 15
+# und stellt sie danach als Download bereit:
 # https://github.com/<konto>/assistent-agent/releases/latest/download/Assistent.dmg
 name: Mac-App bauen
 
@@ -21,10 +22,10 @@ defaults:
 
 jobs:
   mac-app:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 40
     env:
-      APP_VERSION: 0.2.${{ github.run_number }}
+      APP_VERSION: 0.3.${{ github.run_number }}
       APP_BUILD: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v5
@@ -38,21 +39,17 @@ jobs:
       - name: App bauen
         run: scripts/mac-app-bauen.sh --paket 2>&1 | tee -a protokoll.txt
 
-      - name: App starten und prüfen
+      - name: App starten und prüfen (macOS 26)
         run: scripts/mac-app-pruefen.sh 2>&1 | tee -a protokoll.txt
 
-      - name: Disk-Image bauen
-        run: scripts/dmg-bauen.sh 2>&1 | tee -a protokoll.txt
+      - name: App einpacken
+        run: ditto -c -k --keepParent build/Assistent.app build/Assistent-app.zip
 
-      - name: Als Download veröffentlichen
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "v$APP_VERSION" build/Assistent.dmg \
-            --target "$GITHUB_SHA" \
-            --title "Assistent für den Mac – $APP_VERSION" \
-            --notes-file mac/download-anleitung.md \
-            --latest 2>&1 | tee -a protokoll.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: assistent-app
+          path: build/Assistent-app.zip
+          retention-days: 3
 
       - name: Prüfbericht ablegen
         if: always()
@@ -65,3 +62,45 @@ jobs:
           gh release create pruefbericht $files --prerelease --target "$GITHUB_SHA" \
             --title "Prüfbericht vom letzten Bau (${{ job.status }})" \
             --notes "Automatisch erzeugt beim Bauen. Zum Installieren bitte die neueste Version „Assistent für den Mac“ nehmen."
+
+  # Die gleiche App auf macOS 15 (ohne Apple Intelligence) – muss genauso starten
+  aelteres-macos:
+    needs: mac-app
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: assistent-app
+          path: build
+      - name: Auspacken
+        run: ditto -x -k build/Assistent-app.zip build
+      - name: App starten und prüfen (macOS 15)
+        run: scripts/mac-app-pruefen.sh
+
+  veroeffentlichen:
+    needs: [mac-app, aelteres-macos]
+    runs-on: macos-26
+    timeout-minutes: 20
+    env:
+      APP_VERSION: 0.3.${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: assistent-app
+          path: build
+      - name: Auspacken
+        run: ditto -x -k build/Assistent-app.zip build
+      - name: Disk-Image bauen
+        run: scripts/dmg-bauen.sh
+      - name: Als Download veröffentlichen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v$APP_VERSION" build/Assistent.dmg \
+            --target "$GITHUB_SHA" \
+            --title "Assistent für den Mac – $APP_VERSION" \
+            --notes-file mac/download-anleitung.md \
+            --latest

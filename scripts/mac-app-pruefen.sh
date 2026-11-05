@@ -35,6 +35,22 @@ COOKIE="$(curl -fsS -o /dev/null -D - "$URL/api/app-login?key=$KEY" | tr -d '\r'
 STATUS="$(curl -fsS -H "Cookie: $COOKIE" "$URL/api/status")"
 echo "$STATUS" | grep -q '"loggedIn":true' || fail "Nicht angemeldet: $STATUS"
 echo "  ✓ App meldet sich ohne Passwort an"
+# Die App verbindet sich mit dem Assistenten (Kalender, WhatsApp, Apple Intelligence …)
+bridge=""
+for _ in $(seq 1 30); do
+  if curl -fsS "$URL/api/status" | grep -q '"mac":true'; then bridge=1; break; fi
+  sleep 1
+done
+[ -n "$bridge" ] || fail "Die Mac-App verbindet sich nicht mit dem Assistenten (Brücke)"
+echo "  ✓ Brücke zur Mac-App steht"
+BRAIN="$(curl -fsS -H "Cookie: $COOKIE" "$URL/api/brain" || true)"
+echo "  Apple Intelligence: $(echo "$BRAIN" | sed -n 's/.*"apple":{\([^}]*\)}.*/\1/p')"
+APPS="$(curl -fsS -H "Cookie: $COOKIE" "$URL/api/apps" || true)"
+echo "$APPS" | grep -q '"permission":"unknown"' || echo "$APPS" | grep -q '"permission":"notInstalled"' || fail "Die Mac-App meldet keine Berechtigungen: $APPS"
+echo "  ✓ Berechtigungen kommen von der Mac-App"
+W="$(curl -fsS -H "Cookie: $COOKIE" "$URL/api/widget/termine" || true)"
+echo "$W" | grep -q '"state":"ask"' || fail "Kalender-Widget sollte nach Erlaubnis fragen: $W"
+echo "  ✓ Kalender fragt erst nach Erlaubnis"
 PAGE="$(curl -fsS "$URL/" || true)"
 grep -q 'id="app"' <<<"$PAGE" || fail "Die Oberfläche wird nicht ausgeliefert"
 echo "  ✓ Oberfläche wird ausgeliefert"

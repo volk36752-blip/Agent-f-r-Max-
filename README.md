@@ -1,19 +1,18 @@
 # Assistent
 
-Dein persönlicher Agent als Website mit Dashboard:
+Dein persönlicher Agent für den Mac – dunkel, mit Orange und Grün, ohne Passwörter:
 
-- **To-do-Liste** direkt im Dashboard – du, der Agent und Claude können To-dos anlegen und abhaken
-- **iCloud-Kalender** lesen, freie Zeit prüfen, Termine eintragen, ändern und löschen
-- **iCloud-Mail** lesen, durchsuchen, markieren, verschieben und **Antwort-Entwürfe** schreiben (verschickt wird nie etwas automatisch)
-- **Wetter** für deinen Ort
-- **Tagesplan** jeden Morgen ab 6 Uhr – oder sobald dein Mac an ist: To-dos aus Terminen und Mails plus ein kurzes Briefing
-- **Chat mit dem Agenten** im Dashboard („Hab ich Freitag um 15 Uhr Zeit?“) – live: Während er arbeitet, tauchen Karten auf, was er gerade macht („Prüfe deinen Kalender …“), und danach das Ergebnis („Frei“, neues To-do, Termin, Wetter, Mail-Entwurf)
-- **Sprechen statt tippen**: auf die orange Kugel tippen und reden. Antworten wahlweise **nur als Text** oder **Text + Stimme** (tiefe, ruhige Stimme)
-- **Connector für Claude**: In der Claude-App auf dem Mac kannst du direkt mit deinem Dashboard arbeiten
-
-Beim ersten Start fragt dich der Assistent Schritt für Schritt, auf welche Apps er zugreifen darf. Alles lässt sich später unter **Verbindungen** ändern.
-
-Der Assistent braucht **keine zusätzlichen Pakete** – nur Node.js.
+- **Startseite aus Widgets:** Termine, To-dos, WhatsApp, Mail, Wetter, Erinnerungen und Plugin-Widgets – Reihenfolge und Auswahl unter Einstellungen → Startseite
+- **Ohne Anmeldungen:** Kalender, Erinnerungen, Kontakte und Mail kommen direkt vom Mac. Beim ersten Zugriff fragt macOS mit einem Fenster – ein Klick auf „Erlauben“. Jede App lässt sich unter Einstellungen → Apps wieder ausschalten.
+- **WhatsApp:** Chats lesen (über WhatsApp für den Mac), **drei Antwort-Vorschläge – antippen, und er schickt ab**. Fragt dich jemand „Hast du heute Zeit?“, landet ein To-do auf deiner Liste und du bekommst eine Mitteilung.
+- **Mail:** über die Mail-App lesen, Antworten vorschlagen, nach Antippen senden
+- **Sicher:** Senden, Löschen und Kurzbefehle passieren nur nach einem Tipp auf eine Karte. Alles bleibt auf deinem Mac.
+- **Gehirn:** Apple Intelligence direkt auf dem Mac (ab macOS 26, kostenlos, ohne Konto) – oder optional Claude mit API-Schlüssel
+- **Sprechen:** unten in der Leiste auf die orange Kugel tippen; der Lautsprecher daneben stellt ein, ob er nur mit Text oder mit Text + Stimme antwortet
+- **Karten im Gespräch:** Während er arbeitet, tauchen Karten auf – was er gerade macht und das Ergebnis
+- **Plugins** zum Hinzufügen, wenn du sie brauchst: Schlagzeilen, Kurzbefehle, Notizen, Musik, Webseiten lesen
+- **Tagesplan** jeden Morgen ab 6 Uhr – oder sobald dein Mac an ist
+- **Connector für Claude**: In der Claude-App auf dem Mac kannst du direkt mit deinem Assistenten arbeiten
 
 ---
 
