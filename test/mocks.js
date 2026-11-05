@@ -299,7 +299,7 @@ export async function startImap({ user, password }) {
 
 // ---------------- Claude-API ----------------
 
-export async function startClaude({ apiKey, script, delayMs = 0 }) {
+export async function startClaude({ apiKey, script, delayMs = 0, workspaceId = null }) {
   const pause = () => (delayMs ? new Promise((r) => setTimeout(r, delayMs)) : null);
   const requests = [];
   const server = http.createServer(async (req, res) => {
@@ -309,6 +309,15 @@ export async function startClaude({ apiKey, script, delayMs = 0 }) {
     if (req.headers['x-api-key'] !== apiKey) {
       res.writeHead(401, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }));
+    }
+    // Schlüssel ohne Workspace: wie die echte API nur mit anthropic-workspace-id
+    if (req.method === 'GET' && req.url.startsWith('/v1/organizations/workspaces')) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ data: [{ id: workspaceId || 'wrkspc_default', type: 'workspace', name: 'Default', archived_at: null }], has_more: false }));
+    }
+    if (workspaceId && req.headers['anthropic-workspace-id'] !== workspaceId) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header with the ID of the workspace to use.' } }));
     }
     if (req.method === 'GET' && req.url.startsWith('/v1/models')) {
       res.writeHead(200, { 'Content-Type': 'application/json' });

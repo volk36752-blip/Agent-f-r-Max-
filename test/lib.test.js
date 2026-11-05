@@ -162,3 +162,27 @@ test('IMAP: Antworten zerlegen', () => {
   assert.equal(decodeMailboxName('Entw&APw-rfe'), 'Entwürfe');
   assert.equal(encodeMailboxName('Entwürfe & Co'), 'Entw&APw-rfe &- Co');
 });
+
+test('Claude-Schlüssel ohne Workspace: Workspace wird selbst gefunden', async () => {
+  const { startClaude } = await import('./mocks.js');
+  const { checkApiKey, streamMessage } = await import('../src/lib/claude.js');
+  const key = 'sk-ant-api03-ohne-workspace';
+  const mock = await startClaude({
+    apiKey: key,
+    workspaceId: 'wrkspc_test123',
+    script: () => ({ content: [{ type: 'text', text: 'Hallo!' }], stop_reason: 'end_turn' }),
+  });
+  const before = process.env.ANTHROPIC_BASE_URL;
+  process.env.ANTHROPIC_BASE_URL = mock.url;
+  try {
+    assert.equal(await checkApiKey(key), true);
+    let text = '';
+    const msg = await streamMessage({ apiKey: key, model: 'claude-sonnet-5-5', system: 'x', messages: [{ role: 'user', content: 'Hi' }], onText: (t) => { text += t; } });
+    assert.equal(text, 'Hallo!');
+    assert.equal(msg.stop_reason, 'end_turn');
+    assert.equal(mock.requests.at(-1).headers['anthropic-workspace-id'], 'wrkspc_test123');
+  } finally {
+    if (before === undefined) delete process.env.ANTHROPIC_BASE_URL; else process.env.ANTHROPIC_BASE_URL = before;
+    await mock.close();
+  }
+});

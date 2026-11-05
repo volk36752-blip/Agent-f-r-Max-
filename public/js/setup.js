@@ -221,7 +221,7 @@ const STEP_RENDERERS = {
     const key = h('input', { type: 'password', id: 'api-key', autocomplete: 'off', placeholder: c.claude.hasKey ? 'Schon gespeichert – leer lassen zum Behalten' : 'sk-ant-…', required: !c.claude.hasKey });
     const model = h('select', { id: 'model' }, c.claude.models.map((m) => h('option', { value: m.id, selected: m.id === c.claude.model }, `${m.label} – ${m.hint}`)));
     const form = h('form', {},
-      h('div', { class: 'field' }, h('label', { for: 'api-key' }, 'Claude-API-Schlüssel'), key, h('span', { class: 'hint' }, 'Bekommst du in der ', h('a', { href: 'https://platform.claude.com/', target: '_blank', rel: 'noopener' }, 'Claude Console'), ' unter „API Keys“. Die API wird nach Verbrauch abgerechnet, getrennt von deinem Claude-Abo – ein Tagesplan kostet grob ein paar Cent.')),
+      h('div', { class: 'field' }, h('label', { for: 'api-key' }, 'Claude-API-Schlüssel'), key, h('span', { class: 'hint' }, 'Bekommst du in der ', h('a', { href: 'https://platform.claude.com/settings/keys', target: '_blank', rel: 'noopener' }, 'Claude Console unter „API keys“'), ' → „Create key“ (Ablauf am besten „Never“). Vorher unter „Billing“ etwas Guthaben kaufen (z. B. 5 $). Die API wird nach Verbrauch abgerechnet, getrennt von deinem Claude-Abo – ein Tagesplan kostet grob ein paar Cent.')),
       h('div', { class: 'field' }, h('label', { for: 'model' }, 'Modell'), model),
       h('p', { class: 'error-line', role: 'alert' }),
       actions(h('button', { class: 'btn', type: 'submit' }, 'Claude verbinden'), laterButton(step, 'claude', single)));

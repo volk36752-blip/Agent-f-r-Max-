@@ -86,7 +86,7 @@ Ab dann läuft der Assistent im Hintergrund, sobald du dich am Mac anmeldest. Au
 |---|---|
 | iCloud-Kalender und -Mail | Deine Apple-ID und ein **app-spezifisches Passwort**: auf [account.apple.com](https://account.apple.com) unter „Anmeldung und Sicherheit“ → „App-spezifische Passwörter“ ([Anleitung von Apple](https://support.apple.com/de-de/102654)). Dafür muss die Zwei-Faktor-Authentifizierung an sein. |
 | Wetter | Nur deinen Ort – kein Konto nötig ([Open-Meteo](https://open-meteo.com)) |
-| Claude (Chat und Tagesplan) | Einen API-Schlüssel aus der [Claude Console](https://platform.claude.com/). Die API wird nach Verbrauch abgerechnet, getrennt von deinem Claude-Abo. |
+| Claude (Chat und Tagesplan) | Einen API-Schlüssel aus der [Claude Console](https://platform.claude.com/settings/keys) („Create key“), dazu etwas Guthaben unter [Billing](https://platform.claude.com/settings/billing). Die API wird nach Verbrauch abgerechnet, getrennt von deinem Claude-Abo. |
 
 Ohne Claude-Schlüssel funktionieren To-dos, Kalender, Mail und Wetter trotzdem; der Tagesplan ist dann ein einfaches Briefing ohne neue To-dos.
 

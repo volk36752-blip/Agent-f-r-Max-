@@ -24,28 +24,60 @@ function friendlyError(status, message = '') {
   if (status === 429) return 'Zu viele Anfragen an Claude – bitte kurz warten.';
   if (status === 529 || status === 503) return 'Claude ist gerade überlastet. Versuch es gleich noch einmal.';
   if (/credit balance/i.test(message)) return 'Dein Guthaben für die Claude-API ist aufgebraucht. Lade es in der Claude Console auf.';
+  if (/anthropic-workspace-id/i.test(message)) return 'Dieser Schlüssel gehört zu keinem Arbeitsbereich (Workspace). Erstelle in der Claude Console einen neuen Schlüssel und wähle dabei einen Workspace aus.';
   return `Claude-API-Fehler (${status}): ${message || 'unbekannt'}`;
 }
 
-async function call(path, apiKey, { method = 'GET', body } = {}) {
-  let res;
+// Schlüssel, die keinem Workspace zugeordnet sind, brauchen bei jeder Anfrage die Workspace-ID.
+// Die suche ich einmal selbst heraus, damit du dich darum nicht kümmern musst.
+const workspaces = new Map();
+
+function headersFor(apiKey, extra = {}) {
+  const headers = { 'x-api-key': apiKey, 'anthropic-version': API_VERSION, 'content-type': 'application/json', ...extra };
+  const ws = workspaces.get(apiKey);
+  if (ws) headers['anthropic-workspace-id'] = ws;
+  return headers;
+}
+
+async function findWorkspace(apiKey) {
   try {
-    res = await fetch(`${apiBase()}${path}`, {
-      method,
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': API_VERSION,
-        'content-type': 'application/json',
-      },
-      body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(180000),
+    const res = await fetch(`${apiBase()}/v1/organizations/workspaces?include_default=true&limit=100`, {
+      headers: { 'x-api-key': apiKey, 'anthropic-version': API_VERSION },
+      signal: AbortSignal.timeout(20000),
     });
-  } catch (err) {
-    throw new ClaudeError(`Die Claude-API ist nicht erreichbar (${err.cause?.code || err.name}).`, 0);
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => ({}));
+    const active = (data?.data || []).filter((w) => w?.id && !w.archived_at);
+    const pick = active.length === 1 ? active[0]
+      : active.find((w) => w.is_default || /^(default|standard)/i.test(w.name || '')) || active[0];
+    if (!pick) return null;
+    workspaces.set(apiKey, pick.id);
+    return pick.id;
+  } catch {
+    return null;
   }
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ClaudeError(friendlyError(res.status, data?.error?.message), res.status);
-  return data;
+}
+
+/** fetch an die Claude-API – bei einem Schlüssel ohne Workspace einmal mit der passenden Workspace-ID wiederholen. */
+async function request(path, apiKey, init, timeoutMs) {
+  for (let attempt = 0; ; attempt++) {
+    let res;
+    try {
+      res = await fetch(`${apiBase()}${path}`, { ...init, headers: headersFor(apiKey, init.headers), signal: AbortSignal.timeout(timeoutMs) });
+    } catch (err) {
+      throw new ClaudeError(`Die Claude-API ist nicht erreichbar (${err.cause?.code || err.name}).`, 0);
+    }
+    if (res.ok) return res;
+    const data = await res.json().catch(() => ({}));
+    const message = data?.error?.message || '';
+    if (attempt === 0 && res.status === 400 && /anthropic-workspace-id/i.test(message) && !workspaces.has(apiKey) && await findWorkspace(apiKey)) continue;
+    throw new ClaudeError(friendlyError(res.status, message), res.status);
+  }
+}
+
+async function call(path, apiKey, { method = 'GET', body } = {}) {
+  const res = await request(path, apiKey, { method, body: body ? JSON.stringify(body) : undefined }, 180000);
+  return res.json().catch(() => ({}));
 }
 
 // Prüft den Schlüssel, ohne Kosten zu verursachen.
@@ -59,34 +91,19 @@ export async function checkApiKey(apiKey) {
  * onText(delta) bekommt jeden Textschnipsel. Liefert am Ende dieselbe Nachricht wie createMessage.
  */
 export async function streamMessage({ apiKey, model, system, tools, messages, maxTokens = 4096, onText }) {
-  let res;
-  try {
-    res = await fetch(`${apiBase()}/v1/messages`, {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': API_VERSION,
-        'content-type': 'application/json',
-        accept: 'text/event-stream',
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: maxTokens,
-        system,
-        tools: tools?.length ? tools : undefined,
-        messages,
-        cache_control: { type: 'ephemeral' },
-        stream: true,
-      }),
-      signal: AbortSignal.timeout(300000),
-    });
-  } catch (err) {
-    throw new ClaudeError(`Die Claude-API ist nicht erreichbar (${err.cause?.code || err.name}).`, 0);
-  }
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new ClaudeError(friendlyError(res.status, data?.error?.message), res.status);
-  }
+  const res = await request('/v1/messages', apiKey, {
+    method: 'POST',
+    headers: { accept: 'text/event-stream' },
+    body: JSON.stringify({
+      model,
+      max_tokens: maxTokens,
+      system,
+      tools: tools?.length ? tools : undefined,
+      messages,
+      cache_control: { type: 'ephemeral' },
+      stream: true,
+    }),
+  }, 300000);
   const msg = { id: null, role: 'assistant', content: [], stop_reason: null, usage: {} };
   const handle = (data) => {
     switch (data.type) {
