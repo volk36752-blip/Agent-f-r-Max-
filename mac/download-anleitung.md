@@ -13,8 +13,9 @@
 ### Neu in dieser Version
 
 - **Bunter:** Jede App hat ihre eigene Farbe, oben siehst du deinen Tag auf einen Blick.
-- **Fragst du etwas**, wird das passende Widget groß (bei Terminen die ganze Woche). Passt kein Widget, taucht oben ein neues auf – mit dem X klickst du es weg.
-- **Stimmen:** Unter Einstellungen → Stimme probehören und auswählen. Dazu freie, natürliche Stimmen aus dem Internet (Piper-Projekt) mit einem Klick laden.
-- **Mit Claude verbinden:** Einstellungen → Claude → „Mit Claude verbinden“, in der Claude-App auf „Installieren“ klicken – fertig.
+- **Fragst du etwas**, ploppt das passende Widget groß über den anderen auf (bei Terminen die ganze Woche) – mit dem X wieder weg.
+- **Der Ball oben links** ist dein Agent: Er hört zu, denkt nach und bewegt sich, wenn er spricht.
+- **Stimme:** Unter Einstellungen → Stimme probehören und auswählen. Richtig natürlich klingt er mit einer Siri-Stimme – dort steht, wie du sie einstellst.
+- **Mit Claude verbinden:** Auf „Mit Claude verbinden“ klicken, in der Claude-App auf „Installieren“ – fertig, ohne Schlüssel. Dann ist Claude das Gehirn.
 
 Du brauchst nichts weiter zu installieren – alles steckt in der App. Deine Daten liegen nur auf deinem Mac.

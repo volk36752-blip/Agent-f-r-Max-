@@ -5,6 +5,7 @@ import { h, ICONS, icon, toast, api, go, shell, switchInput } from './ui.js';
 import { isMacApp, nativeCall } from './voice.js';
 import { permissionList } from './permissions.js';
 import { voicePage } from './voicepage.js';
+import { connectClaude } from './claude.js';
 
 const root = () => document.getElementById('app');
 
@@ -208,46 +209,19 @@ async function claudePage() {
   const paintState = () => {
     const on = Boolean(info.lastSeen);
     state.className = `claude-state ${on ? 'on' : 'wait'}`;
-    state.replaceChildren(h('span', { class: 'led' }), on ? `Verbunden – Claude hat zuletzt ${ago(info.lastSeen)} mit mir gearbeitet` : 'Noch nicht verbunden');
+    state.replaceChildren(h('span', { class: 'led' }), on ? `Verbunden – Claude ist dein Gehirn (zuletzt ${ago(info.lastSeen)})` : 'Noch nicht verbunden');
   };
   paintState();
-  let watcher = null;
-  const watch = () => {
-    clearInterval(watcher);
-    const before = info.lastSeen || 0;
-    const until = Date.now() + 180000;
-    watcher = setInterval(async () => {
-      if (!state.isConnected || Date.now() > until) return clearInterval(watcher);
-      try {
-        info = await api('GET', '/api/claude-app');
-      } catch {
-        return undefined;
-      }
-      if ((info.lastSeen || 0) > before) {
-        clearInterval(watcher);
-        paintState();
-        toast('Verbunden! Frag Claude jetzt zum Beispiel: „Was steht heute bei mir an?“');
-      }
-      return undefined;
-    }, 2500);
-  };
   const download = h('a', { class: 'btn btn-quiet', href: 'https://claude.ai/download', target: '_blank', rel: 'noopener', hidden: info.installed || !info.possible }, icon('download'), 'Claude-App laden');
   const connect = h('button', { class: 'btn btn-big', type: 'button', disabled: !info.possible, onclick: async () => {
     connect.disabled = true;
     try {
-      const r = await api('POST', '/api/claude-app/install');
-      if (r.opened) {
-        toast('Claude ist offen – klick dort auf „Installieren“.');
-        watch();
-      } else {
-        download.hidden = false;
-        toast('Ich habe die Claude-App nicht gefunden. Lade sie zuerst und klick dann nochmal hier.', 'error');
-      }
+      await connectClaude({ onLinked: (fresh) => { info = fresh; paintState(); }, onMissing: () => { download.hidden = false; } });
     } catch (err) {
       toast(err.message, 'error');
     }
     connect.disabled = false;
-  } }, icon('sparkle'), info.lastSeen ? 'Nochmal verbinden' : 'Mit Claude verbinden');
+  } }, icon('sparkle'), info.lastSeen ? 'Nochmal verbinden' : 'Verbinden');
 
   const configBtn = h('button', { class: 'btn btn-quiet btn-small', type: 'button', disabled: !info.possible, onclick: async () => {
     try {
@@ -257,7 +231,6 @@ async function claudePage() {
       } else {
         info = await api('POST', '/api/claude-app/config');
         toast('Eingetragen. Beende Claude jetzt ganz (⌘Q) und öffne es neu.');
-        watch();
       }
       configBtn.textContent = info.configEntry ? 'Eintrag wieder entfernen' : 'Direkt in Claude eintragen';
     } catch (err) {
@@ -269,38 +242,33 @@ async function claudePage() {
     h('h2', {}, 'Claude'),
     h('section', { class: 'claude-hero claude' },
       h('div', { class: 'top' }, h('span', { class: 'claude-mark', html: ICONS.sparkle }),
-        h('div', { class: 'stack-tight' }, h('h3', {}, 'Mit Claude verbinden'), h('p', { class: 'hint' }, 'Dann arbeitet Claude in der Claude-App auf deinem Mac direkt mit deinem Assistenten – mit deinen Terminen, To-dos, WhatsApp, Mails und Erinnerungen.'))),
+        h('div', { class: 'stack-tight' }, h('h3', {}, 'Claude als Gehirn'), h('p', { class: 'hint' }, 'Verbinde deinen Assistenten mit Claude – ohne Schlüssel, ohne Passwort. Dann denkt Claude für dich und arbeitet mit deinen Terminen, To-dos, WhatsApp und Mails.'))),
       state,
-      h('div', { class: 'examples' }, ['Was steht heute bei mir an?', 'Hab ich Freitagnachmittag Zeit?', 'Schlag mir eine Antwort an Lisa vor', 'Setz mir ein To-do: Steuer machen, morgen'].map((t) => h('span', {}, `„${t}“`))),
       h('div', { class: 'row-actions inline' }, connect, download),
       h('ol', { class: 'steps-big' },
-        h('li', {}, h('span', {}, 'Klick auf ', h('b', {}, '„Mit Claude verbinden“'), '.')),
-        h('li', {}, h('span', {}, 'Claude öffnet sich und fragt, ob es die Erweiterung „Assistent“ installieren soll – klick auf ', h('b', {}, 'Installieren'), '.')),
-        h('li', {}, h('span', {}, 'Fertig. Frag Claude einfach. Der Assistent muss dafür auf dem Mac laufen.'))),
+        h('li', {}, h('span', {}, h('b', {}, 'Verbinden'), ' klicken.')),
+        h('li', {}, h('span', {}, 'Claude öffnet sich – dort auf ', h('b', {}, 'Installieren'), ' klicken.')),
+        h('li', {}, h('span', {}, h('b', {}, 'Fertig.'), ' Frag Claude einfach, z. B. „Was steht heute an?“'))),
+      h('div', { class: 'examples' }, ['Was steht heute bei mir an?', 'Hab ich Freitag Zeit?', 'Schlag mir eine Antwort an Lisa vor', 'Setz mir ein To-do: Steuer, morgen'].map((t) => h('span', {}, `„${t}“`))),
       !info.possible ? h('p', { class: 'hint' }, 'Das geht nur in der Mac-App „Assistent“.') : ''),
     h('section', { class: 'panel tinted green' },
       h('div', { class: 'panel-head' }, h('span', { class: 'tile', html: ICONS.shield }), h('h3', {}, 'Sicher')),
       h('ul', { class: 'steps-help' },
-        h('li', {}, 'Claude schickt Nachrichten und Mails nur und löscht nur, wenn du ausdrücklich Ja sagst.'),
-        h('li', {}, 'Alles bleibt auf deinem Mac – die Verbindung läuft nur innerhalb deines Macs.'),
-        h('li', {}, 'Trennen: in Claude unter Einstellungen → Erweiterungen „Assistent“ ausschalten – oder hier den Schlüssel erneuern. Dann ist jede bisherige Verbindung gesperrt.')),
-      h('div', { class: 'row-actions' }, h('button', { class: 'btn btn-quiet btn-small', type: 'button', onclick: async () => {
-        try {
-          await api('POST', '/api/connector/token');
-          toast('Neuer Schlüssel – alte Verbindungen sind gesperrt. Verbinde Claude danach neu.');
-        } catch (err) {
-          toast(err.message, 'error');
-        }
-      } }, icon('lock'), 'Schlüssel erneuern')),
+        h('li', {}, 'Nachrichten, Mails und Löschen nur, wenn du ausdrücklich Ja sagst.'),
+        h('li', {}, 'Alles bleibt auf deinem Mac.'),
+        h('li', {}, 'Trennen: in Claude unter Einstellungen → Erweiterungen „Assistent“ ausschalten – oder hier den Schlüssel erneuern.')),
       h('details', { class: 'more' },
         h('summary', {}, 'Klappt nicht?'),
         h('div', { class: 'stack-tight' },
-          h('p', { class: 'hint' }, 'Dann trage ich mich direkt in Claudes Einstellungen ein. Danach Claude ganz beenden (⌘Q) und neu öffnen. Deine anderen Einträge bleiben, eine Sicherung lege ich daneben.'),
-          h('div', { class: 'row-actions' }, configBtn, h('a', { class: 'link-btn', href: '#/verbindungen/claude-app' }, 'Von Hand einrichten'))))),
-    h('section', { class: 'panel tinted pink' },
-      h('div', { class: 'panel-head' }, h('span', { class: 'tile', html: ICONS.brain }), h('h3', {}, 'Andersherum: Claude als Gehirn')),
-      h('p', { class: 'hint' }, 'Der Assistent kann auch selbst mit Claude denken statt mit Apple Intelligence – am schlauesten für schwierige Fragen. Dafür brauchst du einen API-Schlüssel, das kostet pro Nutzung ein paar Cent.'),
-      h('div', { class: 'row-actions' }, h('a', { class: 'btn btn-quiet btn-small', href: '#/einstellungen/gehirn' }, 'Zum Gehirn'))),
+          h('p', { class: 'hint' }, 'Dann trage ich mich direkt in Claudes Einstellungen ein. Danach Claude ganz beenden (⌘Q) und neu öffnen.'),
+          h('div', { class: 'row-actions' }, configBtn, h('button', { class: 'link-btn', type: 'button', onclick: async () => {
+            try {
+              await api('POST', '/api/connector/token');
+              toast('Neuer Schlüssel – alte Verbindungen sind gesperrt. Verbinde Claude danach neu.');
+            } catch (err) {
+              toast(err.message, 'error');
+            }
+          } }, 'Verbindung sperren'))))),
   ];
 }
 
@@ -417,9 +385,13 @@ const PAGES = {
       h('div', { class: 'brain-opts' },
         option('auto', 'Automatisch', 'Claude, wenn ein Schlüssel da ist – sonst Apple Intelligence.'),
         option('apple', 'Apple Intelligence', b.apple.available ? 'Direkt auf deinem Mac: kostenlos, ohne Anmeldung, privat.' : b.reasons[b.apple.reason] || 'Gerade nicht verfügbar.', appleStatus),
-        option('claude', 'Claude', 'Am schlauesten für schwierige Aufgaben. Braucht einen API-Schlüssel und kostet pro Nutzung ein paar Cent.', claudeStatus)),
-      h('section', { class: 'panel' },
-        h('h3', {}, 'Claude (optional)'),
+        option('claude', 'Claude mit API-Schlüssel', 'Antwortet direkt hier im Fenster. Braucht einen Schlüssel (kostet pro Nutzung ein paar Cent).', claudeStatus)),
+      h('section', { class: 'panel tinted claude' },
+        h('div', { class: 'panel-head' }, h('span', { class: 'tile', html: ICONS.sparkle }), h('h3', {}, 'Claude ohne Schlüssel')),
+        h('p', { class: 'hint' }, 'Am einfachsten: Einstellungen → Claude → „Verbinden“ und in Claude auf „Installieren“. Dann ist Claude dein Gehirn – du fragst einfach in der Claude-App.'),
+        h('div', { class: 'row-actions' }, h('a', { class: 'btn btn-small btn-accent', href: '#/einstellungen/claude' }, 'Zu „Claude“'))),
+      h('details', { class: 'panel more' },
+        h('summary', {}, 'Für Fortgeschrittene: Claude mit API-Schlüssel direkt hier im Fenster'),
         h('p', { class: 'hint' }, 'Den Schlüssel bekommst du unter ', h('a', { href: 'https://platform.claude.com/settings/keys', target: '_blank', rel: 'noopener' }, 'platform.claude.com/settings/keys'), ' → „Create key“. Vorher unter „Billing“ etwas Guthaben kaufen.'),
         h('div', { class: 'row-2' }, h('div', { class: 'field' }, h('label', {}, 'API-Schlüssel'), key), h('div', { class: 'field' }, h('label', {}, 'Modell'), model)),
         h('div', { class: 'row-actions' }, h('button', { class: 'btn btn-small', type: 'button', onclick: saveKey }, 'Speichern'),
@@ -608,7 +580,10 @@ export async function renderOnboarding(step = 'hallo') {
     const b = await api('GET', '/api/brain');
     content = [
       h('h1', {}, 'Fertig!'),
-      h('p', { class: 'lead' }, b.active === 'apple' ? 'Ich denke mit Apple Intelligence – direkt auf deinem Mac, ohne Anmeldung.' : b.active === 'claude' ? 'Ich denke mit Claude.' : `Für richtige Antworten brauche ich noch ein Gehirn. ${b.reasons[b.apple.reason] || ''} Bis dahin zeige ich dir deinen Überblick – und unter Einstellungen → Gehirn kannst du Claude dazunehmen.`),
+      h('p', { class: 'lead' }, b.active === 'apple' ? 'Ich denke mit Apple Intelligence – direkt auf deinem Mac, ohne Anmeldung.' : b.active === 'claude' ? 'Ich denke mit Claude.' : `${b.reasons[b.apple.reason] || ''} Bis dahin zeige ich dir deinen Überblick.`),
+      isMacApp ? h('section', { class: 'claude-hero claude' },
+        h('div', { class: 'top' }, h('span', { class: 'claude-mark', html: ICONS.sparkle }), h('div', { class: 'stack-tight' }, h('h3', {}, 'Claude als Gehirn?'), h('p', { class: 'hint' }, 'Ein Klick auf „Verbinden“, in Claude auf „Installieren“ – fertig. Ohne Schlüssel.'))),
+        h('div', { class: 'row-actions inline' }, h('button', { class: 'btn', type: 'button', onclick: (e) => connectClaude().catch((err) => toast(err.message, 'error')) }, icon('sparkle'), 'Verbinden'))) : '',
       h('p', { class: 'lead' }, 'Unten auf der Startseite tippst du auf die bunte Kugel und sprichst – oder schreibst. Mit dem Lautsprecher daneben stellst du ein, ob ich auch laut antworte. Schönere Stimmen findest du unter Einstellungen → Stimme, und unter Einstellungen → Claude verbindest du mich mit Claude.'),
       h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'button', onclick: async () => {
         await api('POST', '/api/setup/finish').catch(() => {});

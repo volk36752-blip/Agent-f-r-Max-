@@ -49,11 +49,6 @@ jobs:
       - name: Node.js für die App holen
         run: scripts/node-holen.sh 2>&1 | tee -a protokoll.txt
 
-      - name: Sprach-Programm für Internet-Stimmen holen
-        # Klappt das nicht, gibt es die App trotzdem – nur ohne Internet-Stimmen
-        continue-on-error: true
-        run: scripts/stimmen-programm-holen.sh 2>&1 | tee -a protokoll.txt
-
       - name: Tests
         run: build/node/node-$([ "$(uname -m)" = arm64 ] && echo arm64 || echo x64) --test test/*.test.js 2>&1 | tee -a protokoll.txt
 

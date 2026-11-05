@@ -4,6 +4,7 @@
 import { h, ICONS, icon, api, toast, renderSay, shortDate, addDays, relativeDay, openDialog, initials, shell, ApiError, minutesOf, colorFor, dateFromIso } from './ui.js';
 import { speech, ears, voiceSettings, isMacApp, nativeCall, rankedVoices, voiceQuality } from './voice.js';
 import { runningCard, resultCard, permissionCard, actionCard, MUTATING } from './widgets.js';
+import { connectClaude } from './claude.js';
 
 const st = { data: null, timers: [], state: 'idle', voiceTurn: false, chat: null, els: {}, widgets: new Map(), temps: new Map(), sheetOpen: false, pop: null };
 const root = () => document.getElementById('app');
@@ -59,13 +60,17 @@ export function stopDashboard() {
   if (ears.active) ears.stop(true);
 }
 
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && st.temps.size && !document.querySelector('dialog[open]') && !st.pop) closeAllTemps();
+});
+
 function greeting(time) {
   const hh = Number(time.slice(0, 2));
   if (hh < 5) return 'Gute Nacht';
-  if (hh < 11) return 'Guten Morgen';
-  if (hh < 17) return 'Hallo';
+  if (hh < 11) return 'Moin';
+  if (hh < 17) return 'Hey';
   if (hh < 22) return 'Guten Abend';
-  return 'Gute Nacht';
+  return 'Na, noch wach';
 }
 
 function nowLocal() {
@@ -94,12 +99,16 @@ export async function renderDashboard() {
   const page = h('main', { class: 'home' }, hero, grid);
   const dock = buildDock();
   const sheet = buildSheet();
-  root().replaceChildren(...shell('/', page), sheet, st.els.reopen, dock);
+  st.els.popLayer = h('div', { class: 'popout-layer' }, h('div', { class: 'popout-backdrop', 'aria-hidden': 'true', onclick: closeAllTemps }));
+  root().replaceChildren(...shell('/', page), st.els.popLayer, sheet, st.els.reopen, dock);
   renderHero();
   data.widgets.filter((x) => x.on).forEach((w, i) => {
     const el = h('section', { class: `widget ${w.color || 'orange'}`, dataset: { widget: w.id } });
     el.style.setProperty('--i', String(i));
     st.widgets.set(w.id, { w, el, big: false });
+    el.addEventListener('dblclick', (e) => {
+      if (!e.target.closest('button, a, input, li.clickable, .ev')) focusWidget(w.id);
+    });
     grid.append(el);
     loadWidget(w.id);
   });
@@ -143,7 +152,19 @@ function renderHero(clockOnly = false) {
   const brain = d.brain?.active;
   const badge = h('a', { class: `brain-badge ${brain ? 'on' : 'warn'}`, href: '#/einstellungen/gehirn', title: 'Gehirn des Agenten' }, h('span', { class: 'led' }), brain ? BRAIN_LABEL[brain] : 'Ohne Gehirn');
   const linked = Boolean(d.claudeApp?.lastSeen);
-  const claude = d.claudeApp?.possible ? h('a', { class: `claude-badge${linked ? ' on' : ''}`, href: '#/einstellungen/claude', title: 'Mit Claude verbinden' }, icon('sparkle'), linked ? 'Mit Claude verbunden' : 'Mit Claude verbinden') : '';
+  // Ein Klick: Claude öffnet sich und fragt „Installieren?“ – ohne Schlüssel
+  const claude = d.claudeApp?.possible ? (linked
+    ? h('a', { class: 'claude-badge on', href: '#/einstellungen/claude', title: 'Claude ist dein Gehirn' }, icon('sparkle'), 'Mit Claude verbunden')
+    : h('button', { class: 'claude-badge', type: 'button', title: 'Mit Claude verbinden', onclick: async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      try {
+        await connectClaude({ onLinked: (info) => { st.data.claudeApp = { ...st.data.claudeApp, lastSeen: info.lastSeen }; renderHero(); }, onMissing: () => window.open('https://claude.ai/download', '_blank', 'noopener') });
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+      btn.disabled = false;
+    } }, icon('sparkle'), 'Mit Claude verbinden')) : '';
   const macChip = !d.mac ? h('span', { class: 'chip off', title: 'Kalender, WhatsApp & Co. ohne Passwort gibt es nur in der Mac-App.' }, icon('laptop'), 'Browser') : '';
   const b = d.briefing;
   const plan = d.plan || {};
@@ -154,12 +175,16 @@ function renderHero(clockOnly = false) {
       h('p', { class: 'meta' }, b ? `Tagesplan von ${new Date(b.createdAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} Uhr` : '',
         b ? ' · ' : '', h('button', { class: 'link-btn', type: 'button', onclick: runPlan }, b ? 'Neu planen' : 'Jetzt planen'))));
   const name = (d.userName || '').trim();
+  // Der Ball oben links: das ist der Agent. Er hört zu, denkt nach und bewegt sich, wenn er spricht.
+  const ball = h('button', { class: 'agent-orb', type: 'button', 'aria-label': 'Mit dem Assistenten sprechen', title: 'Antippen und sprechen', onclick: onOrb }, h('span', { class: 'core' }));
+  st.els.ball = ball;
   st.els.hero.replaceChildren(
-    h('div', {}, h('h1', {}, greeting(n.time), name ? [', ', h('span', { class: 'name' }, name)] : '', ' ', h('span', { class: 'wave', 'aria-hidden': 'true' }, '👋')), date),
+    h('div', { class: 'hero-main' }, ball, h('div', {}, h('h1', {}, greeting(n.time), name ? [', ', h('span', { class: 'name' }, name)] : '', ' ', h('span', { class: 'wave', 'aria-hidden': 'true' }, '👋')), date)),
     h('div', { class: 'hero-side' }, badge, claude, macChip),
     st.els.pulse,
     briefing,
     h('div', { class: 'suggest-row' }, SUGGESTIONS.map(([text, ic, color]) => h('button', { type: 'button', class: color, onclick: () => { speech.unlock(); sendChat(text); } }, icon(ic), text))));
+  ['listening', 'thinking', 'speaking'].forEach((x) => ball.classList.toggle(`is-${x}`, st.state === x));
   updatePulse();
 }
 
@@ -168,7 +193,7 @@ function updatePulse() {
   const box = st.els.pulse;
   if (!box) return;
   const pills = [];
-  const add = (id, ic, color, strong, rest) => pills.push(h('button', { type: 'button', class: color, onclick: () => focusWidget(id, { scroll: true }) }, h('span', { class: 'tile', html: ICONS[ic] }), h('b', {}, strong), rest ? ` ${rest}` : ''));
+  const add = (id, ic, color, strong, rest) => pills.push(h('button', { type: 'button', class: color, onclick: () => focusWidget(id) }, h('span', { class: 'tile', html: ICONS[ic] }), h('b', {}, strong), rest ? ` ${rest}` : ''));
   for (const [id, entry] of st.widgets) {
     const r = entry.result;
     if (id === 'todos') {
@@ -223,11 +248,9 @@ function decorate(entry) {
   const tools = h('div', { class: 'w-tools' });
   if (entry.byAgent) head.querySelector('h2')?.after(h('span', { class: 'for-you' }, icon('sparkle'), 'Für dich'));
   if (entry.temp) {
-    tools.append(h('button', { class: 'icon-btn', type: 'button', 'aria-label': `${entry.w.title} schließen`, title: 'Schließen', html: ICONS.cross, onclick: () => closeTemp(entry) }));
-  } else if (entry.big) {
-    tools.append(h('button', { class: 'icon-btn', type: 'button', 'aria-label': `${entry.w.title} kleiner`, title: 'Wieder klein', html: ICONS.shrink, onclick: () => shrinkWidget(entry.w.id) }));
+    tools.append(h('button', { class: 'icon-btn close-btn', type: 'button', 'aria-label': `${entry.w.title} schließen`, title: 'Schließen', html: ICONS.cross, onclick: () => closeTemp(entry) }));
   } else if (entry.w.id !== 'plugin:musik') {
-    tools.append(h('button', { class: 'icon-btn grow-btn', type: 'button', 'aria-label': `${entry.w.title} groß anzeigen`, title: 'Groß anzeigen', html: ICONS.expand, onclick: () => focusWidget(entry.w.id, { scroll: false }) }));
+    tools.append(h('button', { class: 'icon-btn grow-btn', type: 'button', 'aria-label': `${entry.w.title} groß anzeigen`, title: 'Groß anzeigen', html: ICONS.expand, onclick: () => focusWidget(entry.w.id) }));
   }
   head.append(tools);
 }
@@ -297,76 +320,58 @@ function renderEntry(entry) {
 // ---------- Groß machen, aufgetauchte Widgets ----------
 
 function paintFocus() {
-  const any = [...st.widgets.values()].some((e) => e.big) || st.temps.size > 0;
-  document.body.classList.toggle('has-focus', any);
+  const open = st.temps.size > 0;
+  document.body.classList.toggle('has-focus', open);
+  st.els.popLayer?.classList.toggle('open', open);
 }
 
-function reveal(el) {
-  requestAnimationFrame(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-}
-
-// Macht ein Widget groß. Ist es nicht auf der Startseite, taucht es oben als neues Widget auf.
-function focusWidget(id, { byAgent = false, scroll = true } = {}) {
-  const entry = st.widgets.get(id);
-  if (!entry) {
-    const def = st.data?.widgets?.find((x) => x.id === id);
-    if (!def) return;
-    openTemp(def, { byAgent });
-    return;
-  }
-  if (entry.big) {
-    entry.el.classList.remove('ping');
-    void entry.el.offsetWidth;
-    entry.el.classList.add('ping');
-    if (scroll) reveal(entry.el);
-    return;
-  }
-  entry.big = true;
-  entry.byAgent = byAgent;
-  entry.el.classList.add('focus');
-  paintFocus();
-  loadEntry(entry, { quiet: true });
-  if (scroll) reveal(entry.el);
-}
-
-function shrinkWidget(id) {
-  const entry = st.widgets.get(id);
-  if (!entry || !entry.big) return;
-  entry.big = false;
-  entry.byAgent = false;
-  entry.el.classList.remove('focus', 'ping');
-  paintFocus();
-  loadEntry(entry, { quiet: true });
+// Fragst du etwas, ploppt das passende Widget groß über den anderen auf – zum Wegklicken.
+// Gibt es dafür kein Widget auf der Startseite (z. B. Kontakte), ploppt ein neues auf.
+function focusWidget(id, { byAgent = false } = {}) {
+  const def = st.widgets.get(id)?.w || st.data?.widgets?.find((x) => x.id === id);
+  if (!def) return;
+  openTemp(def, { byAgent });
 }
 
 function openTemp(def, { byAgent = true, cards = null } = {}) {
+  // immer nur eins auf einmal
+  for (const other of [...st.temps.values()]) if (other.w.id !== def.id) closeTemp(other, { quiet: true });
   let entry = st.temps.get(def.id);
   if (!entry) {
-    const el = h('section', { class: `widget temp focus ${def.color || 'orange'}`, dataset: { widget: def.id } });
+    const el = h('section', { class: `widget popout focus ${def.color || 'orange'}`, dataset: { widget: def.id }, role: 'dialog', 'aria-label': def.title });
     entry = { w: def, el, temp: true, big: true, byAgent };
     st.temps.set(def.id, entry);
-    st.els.grid.prepend(el);
-    // höchstens drei aufgetauchte Widgets – das älteste geht
-    while (st.temps.size > 3) closeTemp(st.temps.values().next().value);
+    st.els.popLayer.append(el);
+  } else {
+    entry.el.classList.remove('ping');
+    void entry.el.offsetWidth;
+    entry.el.classList.add('ping');
   }
   if (cards) {
     entry.cards = cards;
     renderEntry(entry);
-  } else loadEntry(entry);
+  } else loadEntry(entry, { quiet: Boolean(entry.result) });
   paintFocus();
-  reveal(entry.el);
   return entry;
 }
 
-function closeTemp(entry) {
+function closeTemp(entry, { quiet = false } = {}) {
   st.temps.delete(entry.w.id);
-  entry.el.remove();
+  if (quiet) entry.el.remove();
+  else {
+    entry.el.classList.add('closing');
+    setTimeout(() => entry.el.remove(), 220);
+  }
   paintFocus();
 }
 
-// Neue Frage: was der Agent letztes Mal groß gemacht hat, wird wieder klein
+function closeAllTemps() {
+  for (const e of [...st.temps.values()]) closeTemp(e);
+}
+
+// Neue Frage: was der Agent letztes Mal aufgemacht hat, geht wieder zu
 function resetAgentFocus() {
-  for (const [id, e] of st.widgets) if (e.big && e.byAgent) shrinkWidget(id);
+  for (const e of [...st.temps.values()]) if (e.byAgent) closeTemp(e, { quiet: true });
 }
 
 function guessTopic(text) {
@@ -798,6 +803,12 @@ const STATE_LABEL = { idle: '', listening: 'Hört zu …', thinking: 'Arbeitet �
 
 function setState(state) {
   st.state = state;
+  const ball = st.els.ball;
+  if (ball) {
+    ball.classList.toggle('is-listening', state === 'listening');
+    ball.classList.toggle('is-thinking', state === 'thinking');
+    ball.classList.toggle('is-speaking', state === 'speaking');
+  }
   const orb = st.els.orb;
   if (orb) {
     orb.classList.toggle('is-listening', state === 'listening');

@@ -83,7 +83,7 @@ if [ -x "$APP/Contents/Helpers/sherpa/bin/sherpa-onnx-offline-tts" ]; then
   fi
   curl -fsS -H "Cookie: $COOKIE" "$URL/api/stimmen/eva_k-x_low/probe" -o /dev/null && echo "  ✓ Hörprobe von Hugging Face kommt an" || echo "::warning::Hörprobe von Hugging Face kam nicht an"
 else
-  echo "::warning::Ohne Sprach-Programm gebaut – Internet-Stimmen sind in dieser Version aus"
+  echo "  (ohne Internet-Stimmen gebaut)"
 fi
 
 sleep 6

@@ -108,7 +108,8 @@ export function systemPrompt(ctx, purpose, { voice = false } = {}) {
     ...(ctx.services.plugins?.list().filter((p) => p.enabled).map((p) => `Plugin ${p.name}`) || []),
   ].filter(Boolean);
   const lines = [
-    'Du bist der persönliche Assistent des Nutzers in seinem Dashboard „Assistent“ auf dem Mac. Du antwortest immer auf Deutsch, in Du-Form, kurz und freundlich.',
+    'Du bist der persönliche Assistent des Nutzers in seinem Dashboard „Assistent“ auf dem Mac. Du redest locker und herzlich wie ein guter Kumpel – auf Deutsch, in Du-Form, ohne Floskeln, gern mit einem Augenzwinkern.',
+    'Antworte schnell und knapp: meist 1–2 Sätze, sofort auf den Punkt. Keine langen Überlegungen, keine Rückfragen, wenn du es dir denken kannst. Ruf nur die Werkzeuge auf, die du wirklich brauchst – die Details sieht der Nutzer ohnehin groß im Widget.',
     ctx.stores?.config.data.userName ? `Der Nutzer heißt ${ctx.stores.config.data.userName}.` : '',
     `Jetzt ist ${describeNow(ctx.services.tz())}. Rechne relative Angaben wie „morgen“ oder „Freitag“ von diesem Datum aus.`,
     `Verfügbar: ${connected.join(', ')}.`,
@@ -247,7 +248,7 @@ export function appleInstructions(ctx, purpose, { voice = false } = {}) {
     return `${i === 0 ? 'heute' : i === 1 ? 'morgen' : WD_SHORT[weekdayOf(d)]} ${d}`;
   });
   return [
-    'Du bist „Assistent“, der persönliche Helfer des Nutzers auf seinem Mac. Antworte immer auf Deutsch, in Du-Form, kurz und freundlich (meist 1–3 Sätze).',
+    'Du bist „Assistent“, der persönliche Helfer des Nutzers auf seinem Mac. Rede locker und herzlich wie ein guter Kumpel, auf Deutsch, in Du-Form. Antworte sofort und knapp (meist 1–2 Sätze) – die Details zeigt das Widget.',
     ctx.stores?.config.data.userName ? `Der Nutzer heißt ${ctx.stores.config.data.userName}.` : '',
     `Jetzt: ${WEEKDAYS[weekdayOf(n.date)]}, ${n.date}, ${n.time} Uhr. Tage: ${days.join(', ')}.`,
     'Benutze die Werkzeuge, statt zu raten. Datum immer als JJJJ-MM-TT, Zeitpunkt als JJJJ-MM-TTTHH:MM.',
