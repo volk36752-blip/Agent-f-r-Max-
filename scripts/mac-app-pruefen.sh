@@ -11,8 +11,9 @@ fail() { echo "::error::$1"; [ -f "$DATA/assistent.log" ] && { echo "--- assiste
 echo "  Architekturen: $(lipo -archs "$APP/Contents/MacOS/Assistent")"
 codesign --verify --deep --strict "$APP" || fail "Die Signatur der App stimmt nicht"
 echo "  ✓ Signatur in Ordnung"
-"$APP/Contents/Helpers/node-arm64" --version >/dev/null || fail "Das mitgelieferte Node.js startet nicht"
-echo "  ✓ Mitgeliefertes Node.js startet ($("$APP/Contents/Helpers/node-arm64" --version))"
+HOSTNODE="$APP/Contents/Helpers/node-$([ "$(uname -m)" = arm64 ] && echo arm64 || echo x64)"
+"$HOSTNODE" --version >/dev/null || fail "Das mitgelieferte Node.js startet nicht"
+echo "  ✓ Mitgeliefertes Node.js startet ($("$HOSTNODE" --version), $(uname -m))"
 
 # Beim Test nicht fragen, ob die App nach „Programme“ soll
 defaults write de.assistent-agent.mac nichtVerschieben -bool true

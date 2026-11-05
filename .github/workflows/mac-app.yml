@@ -1,9 +1,10 @@
 # Baut bei jeder Änderung die fertige Mac-App, prüft sie auf einem echten Mac
 # und stellt sie danach als Download bereit:
-# https://github.com/<konto>/assistent-agent/releases/latest/download/Assistent.dmg
+# https://github.com/<konto>/<repo>/releases/latest/download/Assistent.dmg
 #
-# Gebaut wird auf macOS 15 mit Xcode 26 (macOS-26-SDK, also mit Apple Intelligence) – diese Macs sind bei
-# GitHub viel leichter zu bekommen als macOS-26-Macs. Veröffentlicht wird auf einem normalen Linux-Rechner.
+# Die Macs bei GitHub sind oft knapp. Darum wird gleichzeitig auf einem Mac mit Apple-Chip und einem
+# Intel-Mac gebaut (beide macOS 15 mit Xcode 26, also mit Apple Intelligence). Veröffentlicht wird die
+# App von dem, der zuerst fertig ist – auf einem normalen Linux-Rechner.
 name: Mac-App bauen
 
 on:
@@ -25,9 +26,13 @@ defaults:
     shell: bash
 
 jobs:
-  mac-app:
-    runs-on: macos-15
-    timeout-minutes: 50
+  bau:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     env:
       APP_VERSION: 0.3.${{ github.run_number }}
       APP_BUILD: ${{ github.run_number }}
@@ -39,7 +44,7 @@ jobs:
         run: |
           X="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || true)"
           if [ -n "$X" ]; then sudo xcode-select -s "$X"; fi
-          { xcodebuild -version; xcrun --sdk macosx --show-sdk-path; sw_vers; } 2>&1 | tee -a protokoll.txt
+          { xcodebuild -version; xcrun --sdk macosx --show-sdk-path; sw_vers; uname -m; } 2>&1 | tee -a protokoll.txt
 
       - name: Node.js für die App holen
         run: scripts/node-holen.sh 2>&1 | tee -a protokoll.txt
@@ -50,7 +55,7 @@ jobs:
         run: scripts/stimmen-programm-holen.sh 2>&1 | tee -a protokoll.txt
 
       - name: Tests
-        run: build/node/node-arm64 --test test/*.test.js 2>&1 | tee -a protokoll.txt
+        run: build/node/node-$([ "$(uname -m)" = arm64 ] && echo arm64 || echo x64) --test test/*.test.js 2>&1 | tee -a protokoll.txt
 
       - name: App bauen
         run: scripts/mac-app-bauen.sh --paket 2>&1 | tee -a protokoll.txt
@@ -63,25 +68,24 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: assistent-dmg
+          name: assistent-dmg-${{ matrix.os }}
           path: build/Assistent.dmg
           retention-days: 7
 
-      - name: Prüfbericht ablegen
+      - uses: actions/upload-artifact@v4
         if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release delete pruefbericht --yes --cleanup-tag >/dev/null 2>&1 || true
-          files="protokoll.txt"
-          [ -f build/vorschau.png ] && files="$files build/vorschau.png"
-          gh release create pruefbericht $files --prerelease --target "$GITHUB_SHA" \
-            --title "Prüfbericht vom letzten Bau (${{ job.status }})" \
-            --notes "Automatisch erzeugt beim Bauen. Zum Installieren bitte die neueste Version „Assistent für den Mac“ nehmen."
+        with:
+          name: pruefbericht-${{ matrix.os }}
+          path: |
+            protokoll.txt
+            build/vorschau.png
+          if-no-files-found: ignore
+          retention-days: 7
 
   veroeffentlichen:
-    needs: mac-app
-    if: github.ref == 'refs/heads/main'
+    needs: bau
+    # auch wenn einer der beiden Macs nicht zu bekommen war
+    if: always() && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -90,13 +94,16 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
         with:
-          name: assistent-dmg
+          pattern: assistent-dmg-*
           path: build
       - name: Als Download veröffentlichen
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v$APP_VERSION" build/Assistent.dmg \
+          DMG="$(ls build/assistent-dmg-macos-15/Assistent.dmg build/assistent-dmg-macos-15-intel/Assistent.dmg 2>/dev/null | head -1 || true)"
+          if [ -z "$DMG" ]; then echo "::error::Kein Mac hat die App fertig gebaut"; exit 1; fi
+          echo "Veröffentliche $DMG"
+          gh release create "v$APP_VERSION" "$DMG" \
             --target "$GITHUB_SHA" \
             --title "Assistent für den Mac – $APP_VERSION" \
             --notes-file mac/download-anleitung.md \
