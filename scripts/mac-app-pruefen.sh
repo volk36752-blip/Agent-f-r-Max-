@@ -55,6 +55,28 @@ PAGE="$(curl -fsS "$URL/" || true)"
 grep -q 'id="app"' <<<"$PAGE" || fail "Die Oberfläche wird nicht ausgeliefert"
 echo "  ✓ Oberfläche wird ausgeliefert"
 
+# Stimmen aus dem Internet: die kleinste laden und einen Satz sprechen lassen
+[ -x "$APP/Contents/Helpers/sherpa/bin/sherpa-onnx-offline-tts" ] || fail "Das Sprach-Programm fehlt in der App"
+V="$(curl -fsS -H "Cookie: $COOKIE" "$URL/api/stimmen" || true)"
+echo "$V" | grep -q '"engine":true' || fail "Der Assistent findet das Sprach-Programm nicht: $V"
+curl -fsS -X POST -H "Cookie: $COOKIE" -H "x-assistent: 1" "$URL/api/stimmen/eva_k-x_low/laden" >/dev/null || fail "Stimme laden startet nicht"
+loaded=""
+for _ in $(seq 1 240); do
+  V="$(curl -fsS -H "Cookie: $COOKIE" "$URL/api/stimmen" || true)"
+  if echo "$V" | grep -q '"id":"eva_k-x_low"[^}]*"installed":true'; then loaded=1; break; fi
+  echo "$V" | grep -q '"state":"fehler"' && fail "Stimme laden: $V"
+  sleep 1
+done
+[ -n "$loaded" ] || fail "Die Stimme wurde nicht fertig geladen"
+echo "  ✓ Stimme „Eva“ aus dem Internet geladen"
+T0=$(date +%s)
+curl -fsS -X POST -H "Cookie: $COOKIE" -H "x-assistent: 1" -H "content-type: application/json" \
+  -d '{"voice":"netz:eva_k-x_low","text":"Hallo! Schön, dass du da bist.","speed":1.1}' "$URL/api/sprechen" -o "$DIR/build/stimme.wav" \
+  || fail "Sprechen mit der geladenen Stimme klappt nicht"
+head -c 4 "$DIR/build/stimme.wav" | grep -q RIFF || fail "Das Sprach-Programm liefert keine Tondatei"
+echo "  ✓ Internet-Stimme spricht ($(wc -c < "$DIR/build/stimme.wav" | tr -d ' ') Bytes in $(( $(date +%s) - T0 )) s)"
+curl -fsS -H "Cookie: $COOKIE" "$URL/api/stimmen/eva_k-x_low/probe" -o /dev/null && echo "  ✓ Hörprobe von Hugging Face kommt an" || echo "::warning::Hörprobe von Hugging Face kam nicht an"
+
 sleep 6
 screencapture -x "$DIR/build/vorschau.png" 2>/dev/null && echo "  ✓ Bildschirmfoto gemacht" || echo "  (kein Bildschirmfoto möglich)"
 

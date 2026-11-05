@@ -56,7 +56,7 @@ export default {
   name: 'Schlagzeilen',
   description: 'Aktuelle Nachrichten der Tagesschau – als Widget auf der Startseite und für Fragen wie „Was gibt’s Neues?“.',
   icon: 'news',
-  color: 'amber',
+  color: 'teal',
   examples: ['Was gibt’s Neues?', 'Gibt es Nachrichten zum Wetter?'],
   tools: [
     {
@@ -78,9 +78,9 @@ export default {
   ],
   widget: {
     title: 'Schlagzeilen',
-    async load() {
+    async load(ctx, { big = false } = {}) {
       const items = await headlines();
-      return { items: items.slice(0, 6).map((i) => ({ title: i.title, link: i.link, dateMs: i.dateMs })) };
+      return { items: items.slice(0, big ? 12 : 6).map((i) => ({ title: i.title, link: i.link, dateMs: i.dateMs, text: big ? i.text : undefined })) };
     },
   },
 };

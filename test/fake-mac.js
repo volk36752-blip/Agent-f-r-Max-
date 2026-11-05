@@ -29,7 +29,7 @@ export function createWhatsAppDb(file, now = Date.now()) {
   return db;
 }
 
-export function startFakeMac({ base, key, db, ai = { available: true }, permissions = {}, script = {} }) {
+export function startFakeMac({ base, key, db, ai = { available: true }, permissions = {}, script = {}, extra = {} }) {
   const calls = [];
   const notifications = [];
   const sent = [];
@@ -100,6 +100,7 @@ export function startFakeMac({ base, key, db, ai = { available: true }, permissi
       }
       return { text: typeof plan.text === 'function' ? plan.text(plan.tools) : plan.text };
     },
+    ...extra,
   };
 
   async function handle(req) {

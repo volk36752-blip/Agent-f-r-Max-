@@ -4,6 +4,7 @@ import { local } from './ui.js';
 
 // ---------- Einstellungen (pro Gerät) ----------
 
+// Neue Schlüssel (…2): Die alte, tiefe Grundeinstellung klang blechern – alle starten mit natürlicher Stimme.
 export const voiceSettings = {
   get mode() {
     return local.get('antwort', 'text') === 'stimme' ? 'stimme' : 'text';
@@ -12,22 +13,22 @@ export const voiceSettings = {
     local.set('antwort', v === 'stimme' ? 'stimme' : 'text');
   },
   get voiceURI() {
-    return local.get('stimme', '');
+    return local.get('stimme2', '');
   },
   set voiceURI(v) {
-    local.set('stimme', v || '');
+    local.set('stimme2', v || '');
   },
   get rate() {
-    return Number(local.get('tempo', '0.92')) || 0.92;
+    return Number(local.get('tempo2', '1')) || 1;
   },
   set rate(v) {
-    local.set('tempo', v);
+    local.set('tempo2', v);
   },
   get pitch() {
-    return Number(local.get('tonhoehe', '0.8')) || 0.8;
+    return Number(local.get('tonhoehe2', '1')) || 1;
   },
   set pitch(v) {
-    local.set('tonhoehe', v);
+    local.set('tonhoehe2', v);
   },
   get keepListening() {
     return local.get('weiterhoeren', '1') === '1';
@@ -79,15 +80,37 @@ if (nativeHandler) {
       if (handler) handler(msg);
     },
   };
-  bridge.call('voices', {}, (m) => {
-    bridge.handlers.delete(m.id);
-    nativeVoices = (m.voices || []).map((v) => ({ name: v.name, lang: v.lang, voiceURI: v.id, localService: true, quality: v.quality, male: v.male, nativeScore: v.score }));
+}
+
+// Stimmen (neu) laden – z. B. nachdem du in den Systemeinstellungen eine bessere geladen hast
+export function reloadVoices() {
+  if (!nativeHandler) {
+    synth?.getVoices();
     window.dispatchEvent(new Event('assistent-voices'));
+    return Promise.resolve(germanVoices());
+  }
+  return new Promise((resolve) => {
+    bridge.call('voices', {}, (m) => {
+      bridge.handlers.delete(m.id);
+      nativeVoices = (m.voices || []).map((v) => ({ name: v.name, lang: v.lang, voiceURI: v.id, localService: true, quality: v.quality, male: v.male, nativeScore: v.score }));
+      window.dispatchEvent(new Event('assistent-voices'));
+      resolve(nativeVoices);
+    });
   });
 }
-const MALE = /(Markus|Yannick|Martin|Viktor|Stefan|Conrad|Killian|Florian|Ralf|Reed|Eddy|Rocko|Jonas|Daniel|Bernd|Hans|Thomas)/i;
-const QUALITY = /(Premium|Erweitert|Enhanced|Natural|Neural|Siri)/i;
-const NOVELTY = /(Grandma|Grandpa|Shelley|Sandy|Flo\b|Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Good News|Jester|Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox|Junior|Kathy|Fred)/i;
+if (nativeHandler) reloadVoices();
+
+const PREMIUM = /(Premium|Natural|Neural|Siri)/i;
+const ENHANCED = /(Erweitert|Enhanced|verbessert)/i;
+const NOVELTY = /(Grandma|Grandpa|Shelley|Sandy|Flo\b|Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Good News|Jester|Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox|Junior|Kathy|Fred|Eddy|Reed|Rocko)/i;
+
+// Qualität der Stimme, wie sie in der Auswahl angezeigt wird
+export function voiceQuality(v) {
+  if (v.quality) return v.quality;
+  if (PREMIUM.test(v.name)) return 'premium';
+  if (ENHANCED.test(v.name)) return 'erweitert';
+  return v.localService === false ? 'online' : 'standard';
+}
 
 export function germanVoices() {
   if (nativeHandler) return nativeVoices;
@@ -98,15 +121,16 @@ export function germanVoices() {
 function score(v) {
   if (v.nativeScore !== undefined) return v.nativeScore;
   let s = 0;
-  if (QUALITY.test(v.name)) s += 30;
-  if (MALE.test(v.name)) s += 40;
-  if (NOVELTY.test(v.name)) s -= 80;
-  if (v.localService) s += 5;
-  if (/de-DE/i.test(v.lang)) s += 3;
+  const q = voiceQuality(v);
+  if (q === 'premium') s += 100;
+  if (q === 'erweitert') s += 60;
+  if (q === 'online') s += 40; // Online-Stimmen (z. B. in Chrome) klingen meist natürlich
+  if (NOVELTY.test(v.name)) s -= 300;
+  if (/de-DE/i.test(v.lang)) s += 5;
   return s;
 }
 
-// Tiefe, ruhige Stimme: am liebsten eine männliche deutsche Stimme in guter Qualität
+// Am liebsten die natürlichste deutsche Stimme, die das Gerät hat
 export function pickVoice() {
   const voices = germanVoices();
   const saved = voiceSettings.voiceURI;
@@ -118,7 +142,7 @@ export function pickVoice() {
 }
 
 export function rankedVoices() {
-  return [...germanVoices()].sort((a, b) => score(b) - score(a) || a.name.localeCompare(b.name));
+  return [...germanVoices()].filter((v) => score(v) > -100).sort((a, b) => score(b) - score(a) || a.name.localeCompare(b.name));
 }
 
 const ABBREVIATION = /(?:(?:^|[\s(])[A-Za-zÄÖÜäöü]|\b(?:bzw|ca|evtl|inkl|usw|etc|Nr|Dr|Str|Tel|Mo|Di|Mi|Do|Fr|Sa|So|Jan|Feb|Mär|Apr|Jun|Jul|Aug|Sep|Sept|Okt|Nov|Dez|vgl|ggf|bspw|max|min)|\d)$/;
@@ -175,7 +199,7 @@ export const speech = {
     }
   },
 
-  say(text) {
+  say(text, { voice } = {}) {
     const t = cleanForSpeech(text);
     if (!this.supported || !t) return;
     const gen = this.generation;
@@ -194,7 +218,7 @@ export const speech = {
       }
     };
     if (nativeHandler) {
-      bridge.call('speak', { text: t, rate: voiceSettings.rate, pitch: voiceSettings.pitch, voice: voiceSettings.voiceURI }, (m) => {
+      bridge.call('speak', { text: t, rate: voiceSettings.rate, pitch: voiceSettings.pitch, voice: voice ?? voiceSettings.voiceURI }, (m) => {
         if (m.type !== 'speech-end') return;
         bridge.handlers.delete(m.id);
         finish();
@@ -202,7 +226,7 @@ export const speech = {
       return;
     }
     const u = new SpeechSynthesisUtterance(t);
-    const v = pickVoice();
+    const v = voice ? germanVoices().find((x) => x.voiceURI === voice) || pickVoice() : pickVoice();
     u.lang = v?.lang || 'de-DE';
     if (v) u.voice = v;
     u.rate = voiceSettings.rate;
@@ -246,17 +270,20 @@ export const speech = {
     return this.pending > 0;
   },
 
-  test() {
+  test(voice) {
     this.stop();
     this.unlock();
-    this.say('Hallo, ich bin dein Assistent. So klinge ich, wenn ich dir antworte.');
+    this.say('Hallo! Schön, dass du da bist. So klinge ich, wenn ich dir antworte.', voice !== undefined ? { voice } : {});
   },
 };
 
 if (synth) {
   // Chrome lädt die Stimmen erst später
   synth.getVoices();
-  synth.addEventListener?.('voiceschanged', () => synth.getVoices());
+  synth.addEventListener?.('voiceschanged', () => {
+    synth.getVoices();
+    window.dispatchEvent(new Event('assistent-voices'));
+  });
 }
 
 // ---------- Zuhören ----------

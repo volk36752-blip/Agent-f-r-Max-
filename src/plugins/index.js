@@ -65,10 +65,10 @@ export function createPlugins(ctx) {
       return PLUGINS.filter((p) => on.has(p.id) && p.widget).map((p) => ({ id: `plugin:${p.id}`, plugin: p.id, title: p.widget.title, icon: p.icon, color: p.color || 'orange' }));
     },
 
-    async widgetData(id) {
+    async widgetData(id, { big = false } = {}) {
       const p = find(id);
       if (!p?.widget || !enabled().has(id)) throw new PluginError('Dieses Widget ist nicht aktiv.', 404);
-      return p.widget.load(ctx);
+      return p.widget.load(ctx, { big });
     },
 
     // Knöpfe in Widgets (z. B. Musik: Pause)

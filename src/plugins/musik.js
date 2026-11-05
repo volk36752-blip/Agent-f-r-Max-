@@ -57,7 +57,7 @@ export default {
   name: 'Musik',
   description: 'Der Agent steuert die Musik-App: abspielen, Pause, nächster Song, lauter/leiser, eine Playlist oder einen Song suchen.',
   icon: 'music',
-  color: 'green',
+  color: 'pink',
   needsMac: true,
   examples: ['Spiel meine Playlist „Fokus“', 'Mach mal Pause', 'Was läuft gerade?'],
   tools: [

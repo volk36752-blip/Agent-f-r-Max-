@@ -51,7 +51,7 @@ export default {
   name: 'Kurzbefehle',
   description: 'Der Agent startet deine Kurzbefehle aus der Kurzbefehle-App – für Smart Home, Fokus und alles, was du dort eingerichtet hast. Jeden Start bestätigst du mit einem Tipp.',
   icon: 'bolt',
-  color: 'green',
+  color: 'violet',
   needsMac: true,
   examples: ['Welche Kurzbefehle habe ich?', 'Starte meinen Kurzbefehl „Feierabend“'],
   tools: [

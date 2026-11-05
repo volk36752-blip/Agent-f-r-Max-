@@ -1,14 +1,17 @@
 #!/usr/bin/env node
-// Brücke für die Claude-Desktop-App: verbindet Claude über stdio mit dem laufenden Assistenten.
-// Eintrag in claude_desktop_config.json:  { "command": "node", "args": ["<Pfad>/bin/mcp-stdio.js"] }
+// Brücke für die Claude-App: verbindet Claude über stdio mit dem laufenden Assistenten.
+// Steckt auch in der Claude-Erweiterung (Einstellungen → Claude → „Mit Claude verbinden“).
+// Von Hand in claude_desktop_config.json:  { "command": "node", "args": ["<Pfad>/bin/mcp-stdio.js"] }
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const DATA_DIR = process.env.DATA_DIR || path.join(ROOT, 'data');
+const MAC_DATA = path.join(os.homedir(), 'Library', 'Application Support', 'Assistent');
+const DATA_DIR = process.env.DATA_DIR || (fs.existsSync(path.join(ROOT, 'data')) ? path.join(ROOT, 'data') : MAC_DATA);
 const PORT = Number(process.env.PORT || 3000);
 const BASE = process.env.ASSISTENT_URL || `http://127.0.0.1:${PORT}`;
 
@@ -26,7 +29,7 @@ const OFFLINE = 'Der Assistent läuft gerade nicht. Öffne auf dem Mac die App �
 function localAnswer(msg) {
   // Damit Claude die Verbindung auch dann anzeigt, wenn der Assistent noch nicht läuft
   if (msg.method === 'initialize') {
-    return { protocolVersion: msg.params?.protocolVersion || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'assistent-agent', version: '0.1.0' }, instructions: OFFLINE };
+    return { protocolVersion: msg.params?.protocolVersion || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'assistent-agent', title: 'Assistent', version: '0.3.0' }, instructions: OFFLINE };
   }
   if (msg.method === 'server/discover') {
     return { resultType: 'complete', supportedVersions: ['2026-07-28', '2025-11-25', '2025-06-18'], capabilities: { tools: {} }, instructions: OFFLINE, ttlMs: 10000, cacheScope: 'private' };

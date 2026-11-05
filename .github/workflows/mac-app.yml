@@ -5,14 +5,15 @@ name: Mac-App bauen
 
 on:
   push:
-    branches: [main]
+    # versuch/…: bauen und prüfen, aber nicht veröffentlichen
+    branches: [main, 'versuch/**']
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: mac-app
+  group: mac-app-${{ github.ref }}
   cancel-in-progress: true
 
 defaults:
@@ -32,6 +33,9 @@ jobs:
 
       - name: Node.js für die App holen
         run: scripts/node-holen.sh 2>&1 | tee -a protokoll.txt
+
+      - name: Sprach-Programm für Internet-Stimmen holen
+        run: scripts/stimmen-programm-holen.sh 2>&1 | tee -a protokoll.txt
 
       - name: Tests
         run: build/node/node-arm64 --test test/*.test.js 2>&1 | tee -a protokoll.txt
@@ -81,6 +85,7 @@ jobs:
 
   veroeffentlichen:
     needs: [mac-app, aelteres-macos]
+    if: github.ref == 'refs/heads/main'
     runs-on: macos-26
     timeout-minutes: 20
     env:

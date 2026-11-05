@@ -11,7 +11,7 @@ import { createTodos, TodoError } from './todos.js';
 import { createChat, brainStatus, handleAppleToolCall, APPLE_REASONS } from './agent.js';
 import { createPlanner } from './plan.js';
 import { handleMcpMessage } from './mcp.js';
-import { ToolInputError, runTool } from './tools.js';
+import { ToolInputError, runTool, availableTools } from './tools.js';
 import { createBridge, BridgeError } from './bridge.js';
 import { createApps, AppError, withRun } from './apps.js';
 import { MacError } from './mac.js';
@@ -24,8 +24,17 @@ import { ImapError } from './lib/imap.js';
 import { hashPassword, verifyPassword, Sessions, RateLimiter, randomToken, safeEqual, setupCode } from './auth.js';
 import { Router, HttpError, sendJson, readJson, parseCookies, cookie, serveStatic, isLoopback, clientIp } from './web.js';
 import { nowWall, addDaysIso, isValidTimeZone, todayIso } from './lib/tz.js';
+import { createVoices, VoiceError } from './voices.js';
+import { buildExtension, openInClaude, claudeAppInstalled, claudeLinkPossible, configEntry, writeConfigEntry, removeConfigEntry, hasConfigEntry } from './claude-app.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const APP_VERSION = process.env.APP_VERSION || (() => {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+  } catch {
+    return '0.3.0';
+  }
+})();
 const SESSION_COOKIE = 'assistent_sitzung';
 const WEEKDAYS = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
 
@@ -68,6 +77,7 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
   const actions = createActions(ctx);
   ctx.actions = actions;
   const plugins = createPlugins(ctx);
+  const voices = createVoices({ dataDir, root: ROOT, log });
   services.plugins = plugins;
 
   // Was passiert, wenn du einen Vorschlag antippst
@@ -255,38 +265,53 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
     }
   }
 
+  // big = das Widget ist groß aufgeklappt (du hast danach gefragt) – dann gibt es mehr zu sehen
+  const overlaps = (e, day) => {
+    const next = addDaysIso(day, 1);
+    if (e.allDay) return e.start <= day && e.end >= day;
+    return e.start < `${next}T00:00` && e.end > `${day}T00:00`;
+  };
   const WIDGET_LOADERS = {
-    termine: () => section(async () => {
+    termine: ({ big }) => section(async () => {
       if (!apps.isOn('kalender')) throw new AppError('Kalender ist ausgeschaltet.', 'off');
       const today = todayIso(services.tz());
       const tomorrow = addDaysIso(today, 1);
-      const evs = await services.calendar.events(today, tomorrow);
-      return {
+      const last = addDaysIso(today, big ? 6 : 1);
+      const evs = await services.calendar.events(today, last);
+      const out = {
         today: evs.filter((e) => (e.allDay ? e.start <= today && e.end >= today : e.start.slice(0, 10) <= today && e.end.slice(0, 10) >= today)),
         tomorrow: evs.filter((e) => (e.allDay ? e.start <= tomorrow && e.end >= tomorrow : e.start.slice(0, 10) === tomorrow)),
         provider: services.calendar.provider(),
       };
+      if (big) {
+        out.days = Array.from({ length: 7 }, (_, i) => {
+          const date = addDaysIso(today, i);
+          return { date, events: evs.filter((e) => overlaps(e, date)) };
+        });
+      }
+      return out;
     }),
-    whatsapp: () => section(async () => {
+    whatsapp: ({ big }) => section(async () => {
       if (!apps.isOn('whatsapp')) throw new AppError('WhatsApp ist ausgeschaltet.', 'off');
       if (!bridge.connected()) throw new AppError('Nur in der Mac-App.', 'offline');
-      return { chats: await services.whatsapp.chats({ limit: 6 }) };
+      return { chats: await services.whatsapp.chats({ limit: big ? 12 : 6 }) };
     }),
-    mail: () => section(async () => {
+    mail: ({ big }) => section(async () => {
       if (!apps.isOn('mail')) throw new AppError('Mail ist ausgeschaltet.', 'off');
-      const m = await services.mail.list({ unreadOnly: true, limit: 6 });
+      const m = await services.mail.list({ unreadOnly: true, limit: big ? 12 : 6 });
       return { ...m, provider: services.mail.provider() };
     }),
     wetter: () => section(async () => {
       if (!apps.isOn('wetter')) throw new AppError('Wetter ist ausgeschaltet.', 'off');
       return services.weather.get();
     }),
-    erinnerungen: () => section(async () => {
+    erinnerungen: ({ big }) => section(async () => {
       if (!apps.isOn('erinnerungen')) throw new AppError('Erinnerungen sind ausgeschaltet.', 'off');
       if (!bridge.connected()) throw new AppError('Nur in der Mac-App.', 'offline');
       const today = todayIso(services.tz());
       const list = await services.reminders.list();
-      return { reminders: list.filter((r) => !r.due || r.due <= addDaysIso(today, 1)).slice(0, 8), total: list.length };
+      const shown = big ? list : list.filter((r) => !r.due || r.due <= addDaysIso(today, 1));
+      return { reminders: shown.slice(0, big ? 30 : 8), total: list.length };
     }),
   };
 
@@ -308,12 +333,13 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
     };
   });
 
-  r('GET', '/api/widget/:id', async (req, res, { params }) => {
+  r('GET', '/api/widget/:id', async (req, res, { params, query }) => {
     const id = params.id;
-    if (id.startsWith('plugin:')) return section(() => plugins.widgetData(id.slice(7)));
+    const big = query.get('gross') === '1';
+    if (id.startsWith('plugin:')) return section(() => plugins.widgetData(id.slice(7), { big }));
     const load = WIDGET_LOADERS[id];
     if (!load) throw new HttpError(404, 'Dieses Widget gibt es nicht.');
-    return load();
+    return load({ big });
   });
 
   r('GET', '/api/widgets', () => ({ widgets: widgetLayout() }));
@@ -552,6 +578,62 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
       publicHint: process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL.replace(/\/$/, '')}/mcp/${token}` : null,
     };
   });
+  // ---------- Stimmen aus dem Internet ----------
+
+  r('GET', '/api/stimmen', () => voices.list());
+  r('POST', '/api/stimmen/:id/laden', (req, res, { params }) => ({ voice: voices.start(params.id) }));
+  r('DELETE', '/api/stimmen/:id', (req, res, { params }) => ({ voice: voices.remove(params.id) }));
+  r('GET', '/api/stimmen/:id/probe', async (req, res, { params }) => {
+    const buf = await voices.sample(params.id);
+    res.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Content-Length': buf.length, 'Cache-Control': 'private, max-age=86400' });
+    res.end(buf);
+  });
+  r('POST', '/api/sprechen', async (req, res, { body }) => {
+    const id = String(body.voice || '').replace(/^netz:/, '');
+    const wav = await voices.speak(id, body.text, { speed: body.speed });
+    res.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': wav.length, 'Cache-Control': 'no-store' });
+    res.end(wav);
+  });
+
+  // ---------- Claude-App: der Assistent als Erweiterung in Claude ----------
+
+  const claudeStatus = () => {
+    const seen = stores.state.data.claudeApp || {};
+    return {
+      possible: claudeLinkPossible(),
+      installed: claudeAppInstalled(),
+      lastSeen: seen.lastSeen || null,
+      client: seen.client || null,
+      linkedAt: seen.linkedAt || null,
+      configEntry: hasConfigEntry(),
+    };
+  };
+  r('GET', '/api/claude-app', () => claudeStatus());
+  r('POST', '/api/claude-app/install', async () => {
+    if (!claudeLinkPossible()) throw new HttpError(409, 'Das geht nur auf dem Mac mit der App „Assistent“.');
+    const { buffer } = buildExtension({ root: ROOT, dataDir: path.resolve(dataDir), port: app.port, version: APP_VERSION, tools: availableTools(services, { purpose: 'mcp' }) });
+    const file = path.join(dataDir, 'Assistent.mcpb');
+    fs.writeFileSync(file, buffer, { mode: 0o644 });
+    const opened = await openInClaude(file);
+    return { ...claudeStatus(), opened, file };
+  });
+  r('POST', '/api/claude-app/config', () => {
+    if (!claudeLinkPossible()) throw new HttpError(409, 'Das geht nur auf dem Mac mit der App „Assistent“.');
+    try {
+      const file = writeConfigEntry(configEntry({ root: ROOT, dataDir: path.resolve(dataDir), port: app.port }));
+      return { ...claudeStatus(), file };
+    } catch (err) {
+      throw new HttpError(err.status || 500, err.message);
+    }
+  });
+  r('DELETE', '/api/claude-app/config', () => {
+    try {
+      return { removed: removeConfigEntry(), ...claudeStatus() };
+    } catch (err) {
+      throw new HttpError(err.status || 500, err.message);
+    }
+  });
+
   r('POST', '/api/connector/token', () => {
     stores.secrets.update((s) => {
       s.connectorToken = randomToken(24);
@@ -639,18 +721,31 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data:; media-src 'self' blob:; style-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
   }
 
   function errorStatus(err) {
     if (err instanceof HttpError) return err.status;
-    if (err instanceof TodoError || err instanceof ServiceError || err instanceof ToolInputError || err instanceof MacError || err instanceof ActionError || err instanceof PluginError) return err.status || 400;
+    if (err instanceof TodoError || err instanceof ServiceError || err instanceof ToolInputError || err instanceof MacError || err instanceof ActionError || err instanceof PluginError || err instanceof VoiceError) return err.status || 400;
     if (err instanceof AppError || err instanceof BridgeError) return err.status || 409;
     if (err instanceof JxaError) return err.code === 'denied' ? 403 : 502;
     if (err instanceof ClaudeError) return err.status === 401 || err.status === 409 || err.status === 400 ? (err.status === 401 ? 400 : err.status) : 502;
     if (err instanceof CalDAVError) return err.status === 401 || err.status === 403 ? 400 : 502;
     if (err instanceof ImapError) return err.code === 'AUTHENTICATIONFAILED' ? 400 : 502;
     return 500;
+  }
+
+  // Merkt sich, wann Claude zuletzt mit dem Assistenten gearbeitet hat (für „Verbunden“ in den Einstellungen)
+  let lastNoted = 0;
+  function noteClaude(msg, transport) {
+    const now = Date.now();
+    const client = msg?.params?.clientInfo?.name || msg?.params?._meta?.['io.modelcontextprotocol/clientInfo']?.name || null;
+    if (now - lastNoted < 30000 && !client) return;
+    lastNoted = now;
+    stores.state.update((s) => {
+      const prev = s.claudeApp || {};
+      s.claudeApp = { ...prev, lastSeen: now, client: client || prev.client || null, transport, linkedAt: prev.linkedAt || now };
+    });
   }
 
   async function handleMcpHttp(req, res, tokenFromPath) {
@@ -691,6 +786,7 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
       return;
     }
     const transport = req.url.startsWith('/api/mcp-stdio') ? 'stdio' : 'http';
+    noteClaude(Array.isArray(msg) ? msg[0] : msg, transport);
     if (Array.isArray(msg)) {
       const out = [];
       for (const m of msg) {
@@ -779,6 +875,7 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
     bridge,
     actions,
     plugins,
+    voices,
     setupCode: code,
     port: Number(process.env.PORT || 3000),
     server: null,

@@ -20,7 +20,7 @@ import ApplicationServices
 
 final class AssistentApp: NSObject, NSApplicationDelegate, NSMenuItemValidation, NSWindowDelegate,
     WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, AVSpeechSynthesizerDelegate,
-    UNUserNotificationCenterDelegate, CLLocationManagerDelegate {
+    NSSpeechSynthesizerDelegate, UNUserNotificationCenterDelegate, CLLocationManagerDelegate {
 
     // MARK: - Wo alles liegt
 
@@ -55,6 +55,14 @@ final class AssistentApp: NSObject, NSApplicationDelegate, NSMenuItemValidation,
     // Vorlesen
     let synthesizer = AVSpeechSynthesizer()
     var utteranceIds: [ObjectIdentifier: String] = [:]
+    lazy var systemSynth: NSSpeechSynthesizer = {
+        let synth = NSSpeechSynthesizer()
+        synth.delegate = self
+        return synth
+    }()
+    var systemQueue: [(id: String, text: String, rate: Double)] = []
+    var systemSpeakingId: String?
+    var systemBaseRate: Float = 0
 
     // Zuhören
     let audioEngine = AVAudioEngine()
@@ -105,7 +113,7 @@ final class AssistentApp: NSObject, NSApplicationDelegate, NSMenuItemValidation,
 
     func applicationWillTerminate(_ notification: Notification) {
         bridge?.stop()
-        synthesizer.stopSpeaking(at: .immediate)
+        stopAllSpeech()
         stopListening(cancel: true)
         stopOwnServer()
     }
@@ -199,6 +207,8 @@ final class AssistentApp: NSObject, NSApplicationDelegate, NSMenuItemValidation,
         controller.addUserScript(WKUserScript(source: "window.__assistentApp = true;", injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let config = WKWebViewConfiguration()
         config.userContentController = controller
+        // Stimmen aus dem Internet werden als Ton abgespielt – ohne dass du jedes Mal klicken musst
+        config.mediaTypesRequiringUserActionForPlayback = []
 
         webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = self
@@ -230,7 +240,7 @@ final class AssistentApp: NSObject, NSApplicationDelegate, NSMenuItemValidation,
     }
 
     func windowWillClose(_ notification: Notification) {
-        synthesizer.stopSpeaking(at: .immediate)
+        stopAllSpeech()
         stopListening(cancel: true)
         if backgroundInstalled {
             // Weiterlaufen, aber ohne Symbol im Dock – erreichbar über den Punkt in der Menüleiste
@@ -322,6 +332,9 @@ final class AssistentApp: NSObject, NSApplicationDelegate, NSMenuItemValidation,
         env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:" + (env["PATH"] ?? "")
         env["PORT"] = String(port)
         env["DATA_DIR"] = dataDir
+        if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
+            env["APP_VERSION"] = version
+        }
         p.environment = env
         if !FileManager.default.fileExists(atPath: logPath) {
             FileManager.default.createFile(atPath: logPath, contents: nil, attributes: [.posixPermissions: 0o600])
@@ -797,6 +810,7 @@ final class AssistentApp: NSObject, NSApplicationDelegate, NSMenuItemValidation,
             "accessibility": "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
             "appdata": "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
             "privacy": "x-apple.systempreferences:com.apple.preference.security?Privacy",
+            "voices": "x-apple.systempreferences:com.apple.preference.universalaccess?SpokenContent",
         ]
         if let s = anchors[kind], let url = URL(string: s) { NSWorkspace.shared.open(url) }
     }
@@ -948,11 +962,11 @@ final class AssistentApp: NSObject, NSApplicationDelegate, NSMenuItemValidation,
         case "speak":
             speak(id: id,
                   text: (body["text"] as? String) ?? "",
-                  rate: (body["rate"] as? Double) ?? 0.92,
-                  pitch: (body["pitch"] as? Double) ?? 0.8,
+                  rate: (body["rate"] as? Double) ?? 1.0,
+                  pitch: (body["pitch"] as? Double) ?? 1.0,
                   voice: body["voice"] as? String)
         case "stopSpeaking":
-            synthesizer.stopSpeaking(at: .immediate)
+            stopAllSpeech()
         case "voices":
             send(["id": id, "type": "voices", "voices": voiceList()])
         case "listen":
@@ -993,25 +1007,44 @@ final class AssistentApp: NSObject, NSApplicationDelegate, NSMenuItemValidation,
 
     // MARK: - Vorlesen
 
+    // Gute Stimmen zuerst: Premium vor „Erweitert“ vor Standard. Spaßstimmen (Grandma, Bubbles …) nie.
     func score(_ v: AVSpeechSynthesisVoice) -> Int {
         var s = 0
-        if v.quality == .enhanced { s += 30 }
+        if v.quality == .enhanced { s += 60 }
         if #available(macOS 13.0, *) {
-            if v.quality == .premium { s += 40 }
+            if v.quality == .premium { s += 100 }
         }
-        if v.gender == .male { s += 40 }
+        if #available(macOS 14.0, *) {
+            if v.voiceTraits.contains(.isNoveltyVoice) { s -= 300 }
+            if v.voiceTraits.contains(.isPersonalVoice) { s -= 300 }
+        }
         let novelty = ["Grandma", "Grandpa", "Shelley", "Sandy", "Flo", "Eddy", "Reed", "Rocko", "Albert", "Bahh", "Bells", "Boing", "Bubbles", "Cellos", "Jester", "Organ", "Superstar", "Trinoids", "Whisper", "Wobble", "Zarvox", "Bad News", "Good News"]
-        if novelty.contains(where: { v.name.contains($0) }) { s -= 60 }
-        if v.language == "de-DE" { s += 3 }
+        if novelty.contains(where: { v.name.contains($0) }) { s -= 300 }
+        if v.language == "de-DE" { s += 5 }
         return s
     }
 
     func germanVoices() -> [AVSpeechSynthesisVoice] {
-        return AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix("de") }.sorted { score($0) > score($1) }
+        return AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix("de") && score($0) > -100 }.sorted { score($0) > score($1) }
+    }
+
+    /// Die Stimme aus Systemeinstellungen → Bedienungshilfen → Gesprochene Inhalte – das kann auch eine Siri-Stimme sein.
+    func systemVoiceInfo() -> [String: Any]? {
+        let voice = NSSpeechSynthesizer.defaultVoice
+        let attrs = NSSpeechSynthesizer.attributes(forVoice: voice)
+        let name = (attrs[.name] as? String) ?? ""
+        let locale = ((attrs[.localeIdentifier] as? String) ?? "").lowercased()
+        let siri = voice.rawValue.lowercased().contains("siri") || name.lowercased().contains("siri")
+        guard locale.hasPrefix("de") || (siri && locale.isEmpty) else { return nil }
+        return ["id": "system",
+                "name": siri ? "Siri-Stimme" : (name.isEmpty ? "Systemstimme" : name),
+                "lang": "de-DE",
+                "quality": siri ? "siri" : "system",
+                "score": siri ? 150 : 30]
     }
 
     func voiceList() -> [[String: Any]] {
-        return germanVoices().map { (v: AVSpeechSynthesisVoice) -> [String: Any] in
+        var list = germanVoices().map { (v: AVSpeechSynthesisVoice) -> [String: Any] in
             var quality = "standard"
             if v.quality == .enhanced { quality = "erweitert" }
             if #available(macOS 13.0, *) {
@@ -1019,19 +1052,66 @@ final class AssistentApp: NSObject, NSApplicationDelegate, NSMenuItemValidation,
             }
             return ["id": v.identifier, "name": v.name, "lang": v.language, "quality": quality, "male": v.gender == .male, "score": score(v)]
         }
+        if let system = systemVoiceInfo() { list.insert(system, at: 0) }
+        return list
+    }
+
+    func bestVoice() -> AVSpeechSynthesisVoice? {
+        return germanVoices().first ?? AVSpeechSynthesisVoice(language: "de-DE")
     }
 
     func speak(id: String, text: String, rate: Double, pitch: Double, voice: String?) {
+        let speed = max(0.6, min(1.5, rate))
+        let automatic = (voice ?? "").isEmpty
+        if voice == "system" || (automatic && (systemVoiceInfo()?["quality"] as? String) == "siri") {
+            systemQueue.append((id: id, text: text, rate: speed))
+            if systemSpeakingId == nil { speakNextSystem() }
+            return
+        }
         let utterance = AVSpeechUtterance(string: text)
         if let identifier = voice, !identifier.isEmpty, let chosen = AVSpeechSynthesisVoice(identifier: identifier) {
             utterance.voice = chosen
         } else {
-            utterance.voice = germanVoices().first ?? AVSpeechSynthesisVoice(language: "de-DE")
+            utterance.voice = bestVoice()
         }
-        utterance.rate = Float(Double(AVSpeechUtteranceDefaultSpeechRate) * max(0.5, min(1.6, rate)))
-        utterance.pitchMultiplier = Float(max(0.5, min(2.0, pitch)))
+        utterance.rate = Float(Double(AVSpeechUtteranceDefaultSpeechRate) * speed)
+        utterance.pitchMultiplier = Float(max(0.75, min(1.3, pitch)))
+        utterance.postUtteranceDelay = 0.06
         utteranceIds[ObjectIdentifier(utterance)] = id
         synthesizer.speak(utterance)
+    }
+
+    // Systemstimme: NSSpeechSynthesizer spricht immer nur einen Satz – die nächsten warten in der Schlange
+    func speakNextSystem() {
+        guard !systemQueue.isEmpty else {
+            systemSpeakingId = nil
+            return
+        }
+        let next = systemQueue.removeFirst()
+        systemSpeakingId = next.id
+        if systemBaseRate == 0 { systemBaseRate = systemSynth.rate > 0 ? systemSynth.rate : 185 }
+        systemSynth.rate = systemBaseRate * Float(next.rate)
+        if !systemSynth.startSpeaking(next.text) {
+            send(["id": next.id, "type": "speech-end"])
+            speakNextSystem()
+        }
+    }
+
+    func speechSynthesizer(_ sender: NSSpeechSynthesizer, didFinishSpeaking finishedSpeaking: Bool) {
+        DispatchQueue.main.async {
+            if let id = self.systemSpeakingId { self.send(["id": id, "type": "speech-end"]) }
+            self.systemSpeakingId = nil
+            self.speakNextSystem()
+        }
+    }
+
+    func stopAllSpeech() {
+        synthesizer.stopSpeaking(at: .immediate)
+        let waiting = systemQueue.map { $0.id } + (systemSpeakingId.map { [$0] } ?? [])
+        systemQueue.removeAll()
+        systemSpeakingId = nil
+        if systemSynth.isSpeaking { systemSynth.stopSpeaking() }
+        for id in waiting { send(["id": id, "type": "speech-end"]) }
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {

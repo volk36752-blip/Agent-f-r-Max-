@@ -114,6 +114,13 @@ if [ "$MODE" = "paket" ]; then
   cp -R "$DIR/server.js" "$DIR/package.json" "$DIR/src" "$DIR/public" "$DIR/bin" "$APP/Contents/Resources/server/"
   find "$APP/Contents/Resources/server" -name '.DS_Store' -delete
   cp "$NODE_DIR/node-arm64" "$NODE_DIR/node-x64" "$APP/Contents/Helpers/"
+  # Sprach-Programm für die Stimmen aus dem Internet (scripts/stimmen-programm-holen.sh)
+  if [ -x "$BUILD/sherpa/bin/sherpa-onnx-offline-tts" ]; then
+    ditto "$BUILD/sherpa" "$APP/Contents/Helpers/sherpa"
+    echo "       Mit Sprach-Programm für Internet-Stimmen ($(du -sh "$APP/Contents/Helpers/sherpa" | cut -f1))"
+  else
+    echo "       Ohne Sprach-Programm – Internet-Stimmen gehen dann nicht (erst scripts/stimmen-programm-holen.sh)"
+  fi
   [ -f "$NODE_DIR/LICENSE" ] && cp "$NODE_DIR/LICENSE" "$APP/Contents/Resources/Node.js-Lizenz.txt"
 else
   EXTRA="  <key>AssistentOrdner</key><string>$(xml "$DIR")</string>"
@@ -161,6 +168,9 @@ PLIST
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 
 # Ohne Apple-Entwicklerkonto: ad hoc signieren, damit macOS die App als Ganzes erkennt
+if [ -d "$APP/Contents/Helpers/sherpa" ]; then
+  find "$APP/Contents/Helpers/sherpa" -type f \( -name '*.dylib' -o -perm -u+x \) -exec codesign --force --sign - --timestamp=none {} \;
+fi
 if ! codesign --force --sign - --timestamp=none "$APP" 2>"$BUILD/obj/codesign.log"; then
   cat "$BUILD/obj/codesign.log"
   echo "  Signieren ohne --deep ging nicht, versuche es mit --deep …"
