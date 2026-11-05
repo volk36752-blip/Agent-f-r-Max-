@@ -23,7 +23,7 @@ Dein persönlicher Agent für den Mac – dunkel und bunt (jede App hat ihre Far
 Der Assistent kommt als eigene Mac-App mit orangem Symbol: eigenes Fenster, im Dock und im Launchpad, ohne Terminal und ohne Browser. Node.js und der Assistent stecken schon in der App – du musst nichts weiter installieren.
 
 **Download (in Safari öffnen):**
-https://github.com/volk36752-blip/assistent-agent/releases/latest/download/Assistent.dmg
+https://github.com/volk36752-blip/Agent-f-r-Max-/releases/latest/download/Assistent.dmg
 
 1. Den Link in Safari öffnen – `Assistent.dmg` wird geladen. Danach oben rechts in Safari auf den Pfeil (Downloads) und die Datei anklicken.
 2. Im Fenster, das aufgeht: **Doppelklick auf „Assistent“**.
