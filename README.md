@@ -19,23 +19,24 @@ Der Assistent braucht **keine zusätzlichen Pakete** – nur Node.js.
 
 ## Als Mac-App (empfohlen)
 
-Der Assistent kommt als eigene Mac-App mit orangem Symbol: eigenes Fenster, im Dock, ohne Terminal und ohne Browser. Beim Öffnen startet die App den Assistenten selbst. Sprechen und Vorlesen laufen über die Stimmen und die Spracherkennung von macOS.
+Der Assistent kommt als eigene Mac-App mit orangem Symbol: eigenes Fenster, im Dock und im Launchpad, ohne Terminal und ohne Browser. Node.js und der Assistent stecken schon in der App – du musst nichts weiter installieren.
 
-1. **Node.js** installieren (LTS von [nodejs.org](https://nodejs.org/de/download)) – einmalig.
-2. Den Ordner `assistent-agent` in deinen **Benutzerordner** legen.
-3. Doppelklick auf **`Mac-App bauen.command`**. Das Skript baut die App (dafür braucht es Xcode oder die Xcode-Befehlszeilenwerkzeuge – fehlen sie, startet es die Installation), legt sie in den Programme-Ordner und öffnet sie.
-4. Damit sie im Dock bleibt: Rechtsklick auf das Symbol im Dock → **Optionen → Im Dock behalten**.
+**Download (in Safari öffnen):**
+https://github.com/volk36752-blip/assistent-agent/releases/latest/download/Assistent.dmg
 
-Beim ersten Sprechen fragt macOS nach dem Mikrofon und der Spracherkennung – beides erlauben.
+1. Den Link in Safari öffnen – `Assistent.dmg` wird geladen. Danach oben rechts in Safari auf den Pfeil (Downloads) und die Datei anklicken.
+2. Im Fenster, das aufgeht: **Doppelklick auf „Assistent“**.
+3. Beim allerersten Mal sagt macOS, dass es die App nicht überprüfen kann (sie ist nicht bei Apple registriert). Dann: **Fertig** klicken → **Systemeinstellungen → Datenschutz & Sicherheit** → ganz nach unten → bei „Assistent“ auf **Dennoch öffnen** → mit deinem Mac-Passwort bestätigen.
+4. Die App fragt, ob sie sich in **Programme** legen soll → **In Programme legen**.
+5. Danach fragt sie nach den **Berechtigungen**: Mikrofon und Spracherkennung (zum Sprechen), Mitteilungen (für den Tagesplan am Morgen), Standort (fürs Wetter), ob sie **im Dock** bleiben und ob sie **morgens von selbst starten** soll. Dann geht es mit Kalender, Mail und Claude weiter.
 
-Im Menü **Assistent** findest du:
+Deine Daten liegen nur auf deinem Mac unter `~/Library/Application Support/Assistent`.
 
-- **Im Hintergrund laufen lassen** – dann läuft der Assistent auch, wenn die App zu ist, und der Tagesplan kommt jeden Morgen.
-- **In Safari öffnen** und **Ordner im Finder zeigen**.
+Im Menü **Assistent** findest du: **Einstellungen**, **Berechtigungen**, **Morgens von selbst starten**, **Im Dock behalten**, **In Safari öffnen** und **Datenordner im Finder zeigen**.
 
-Wenn du den Ordner verschiebst oder eine neue Version herunterlädst: einfach nochmal `Mac-App bauen.command` doppelklicken.
+**Neue Version:** einfach den Link oben nochmal öffnen und die neue App genauso öffnen – sie ersetzt die alte, deine Daten bleiben.
 
-Falls das Bauen nicht klappt, geht es auch ohne: Assistent starten (siehe unten), in Safari `http://localhost:3000` öffnen und im Menü **Ablage → Zum Dock hinzufügen** wählen.
+Die App wird bei jeder Änderung am Code automatisch auf GitHub gebaut (`.github/workflows/mac-app.yml`). Selbst bauen geht auch: mit Xcode-Befehlszeilenwerkzeugen und Node.js Doppelklick auf **`Mac-App bauen.command`** – diese Version läuft aus dem Ordner und nutzt dein installiertes Node.js.
 
 ---
 
