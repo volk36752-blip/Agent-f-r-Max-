@@ -64,6 +64,10 @@ if [ -n "$SDK" ] && [ -d "$SDK/System/Library/Frameworks/FoundationModels.framew
   echo "       Mit Apple Intelligence (SDK: $(basename "$SDK"))"
 else
   echo "       Ohne Apple Intelligence (SDK zu alt: $(basename "${SDK:-unbekannt}"))"
+  if [ -n "${REQUIRE_APPLE_INTELLIGENCE:-}" ]; then
+    echo "  Für das fertige Paket brauche ich Xcode 26 (macOS-26-SDK) – sonst fehlt Apple Intelligence."
+    exit 1
+  fi
 fi
 
 # Fehler von swiftc als Hinweise in GitHub anzeigen

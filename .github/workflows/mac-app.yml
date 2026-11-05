@@ -1,6 +1,9 @@
-# Baut bei jeder Änderung die fertige Mac-App, prüft sie auf macOS 26 und macOS 15
+# Baut bei jeder Änderung die fertige Mac-App, prüft sie auf einem echten Mac
 # und stellt sie danach als Download bereit:
 # https://github.com/<konto>/assistent-agent/releases/latest/download/Assistent.dmg
+#
+# Gebaut wird auf macOS 15 mit Xcode 26 (macOS-26-SDK, also mit Apple Intelligence) – diese Macs sind bei
+# GitHub viel leichter zu bekommen als macOS-26-Macs. Veröffentlicht wird auf einem normalen Linux-Rechner.
 name: Mac-App bauen
 
 on:
@@ -23,13 +26,20 @@ defaults:
 
 jobs:
   mac-app:
-    runs-on: macos-26
-    timeout-minutes: 40
+    runs-on: macos-15
+    timeout-minutes: 50
     env:
       APP_VERSION: 0.3.${{ github.run_number }}
       APP_BUILD: ${{ github.run_number }}
+      REQUIRE_APPLE_INTELLIGENCE: '1'
     steps:
       - uses: actions/checkout@v5
+
+      - name: Xcode 26 wählen (für Apple Intelligence)
+        run: |
+          X="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || true)"
+          if [ -n "$X" ]; then sudo xcode-select -s "$X"; fi
+          { xcodebuild -version; xcrun --sdk macosx --show-sdk-path; sw_vers; } 2>&1 | tee -a protokoll.txt
 
       - name: Node.js für die App holen
         run: scripts/node-holen.sh 2>&1 | tee -a protokoll.txt
@@ -45,17 +55,17 @@ jobs:
       - name: App bauen
         run: scripts/mac-app-bauen.sh --paket 2>&1 | tee -a protokoll.txt
 
-      - name: App starten und prüfen (macOS 26)
+      - name: App starten und prüfen
         run: scripts/mac-app-pruefen.sh 2>&1 | tee -a protokoll.txt
 
-      - name: App einpacken
-        run: ditto -c -k --keepParent build/Assistent.app build/Assistent-app.zip
+      - name: Disk-Image bauen
+        run: scripts/dmg-bauen.sh 2>&1 | tee -a protokoll.txt
 
       - uses: actions/upload-artifact@v4
         with:
-          name: assistent-app
-          path: build/Assistent-app.zip
-          retention-days: 3
+          name: assistent-dmg
+          path: build/Assistent.dmg
+          retention-days: 7
 
       - name: Prüfbericht ablegen
         if: always()
@@ -69,39 +79,19 @@ jobs:
             --title "Prüfbericht vom letzten Bau (${{ job.status }})" \
             --notes "Automatisch erzeugt beim Bauen. Zum Installieren bitte die neueste Version „Assistent für den Mac“ nehmen."
 
-  # Die gleiche App auf macOS 15 (ohne Apple Intelligence) – muss genauso starten
-  aelteres-macos:
-    needs: mac-app
-    runs-on: macos-15
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v4
-        with:
-          name: assistent-app
-          path: build
-      - name: Auspacken
-        run: ditto -x -k build/Assistent-app.zip build
-      - name: App starten und prüfen (macOS 15)
-        run: scripts/mac-app-pruefen.sh
-
   veroeffentlichen:
-    needs: [mac-app, aelteres-macos]
+    needs: mac-app
     if: github.ref == 'refs/heads/main'
-    runs-on: macos-26
-    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       APP_VERSION: 0.3.${{ github.run_number }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
         with:
-          name: assistent-app
+          name: assistent-dmg
           path: build
-      - name: Auspacken
-        run: ditto -x -k build/Assistent-app.zip build
-      - name: Disk-Image bauen
-        run: scripts/dmg-bauen.sh
       - name: Als Download veröffentlichen
         env:
           GH_TOKEN: ${{ github.token }}
