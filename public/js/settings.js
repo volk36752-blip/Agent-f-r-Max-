@@ -1,22 +1,23 @@
-// Einstellungen: Apps (ohne Passwörter), Plugins, Startseite, Gehirn, Stimme, Tagesplan, Mac, Erweitert.
+// Einstellungen: Apps (ohne Passwörter), Plugins, Startseite, Claude, Gehirn, Stimme, Tagesplan, Mac, Erweitert.
 // Dazu die kurze Einrichtung beim ersten Öffnen.
 
 import { h, ICONS, icon, toast, api, go, shell, switchInput } from './ui.js';
 import { isMacApp, nativeCall } from './voice.js';
 import { permissionList } from './permissions.js';
-import { voiceSection } from './setup.js';
+import { voicePage } from './voicepage.js';
 
 const root = () => document.getElementById('app');
 
 const TABS = [
-  ['apps', 'Apps', 'grid'],
-  ['plugins', 'Plugins', 'puzzle'],
-  ['startseite', 'Startseite', 'home'],
-  ['gehirn', 'Gehirn', 'brain'],
-  ['stimme', 'Stimme', 'speaker'],
-  ['tagesplan', 'Tagesplan', 'sunrise'],
-  ['mac', 'Mac', 'laptop'],
-  ['erweitert', 'Erweitert', 'gear'],
+  ['apps', 'Apps', 'grid', 'sky'],
+  ['plugins', 'Plugins', 'puzzle', 'violet'],
+  ['startseite', 'Startseite', 'home', 'orange'],
+  ['claude', 'Claude', 'sparkle', 'claude'],
+  ['gehirn', 'Gehirn', 'brain', 'pink'],
+  ['stimme', 'Stimme', 'speaker', 'green'],
+  ['tagesplan', 'Tagesplan', 'sunrise', 'amber'],
+  ['mac', 'Mac', 'laptop', 'teal'],
+  ['erweitert', 'Erweitert', 'gear', 'grey'],
 ];
 
 const PERM_CHIP = {
@@ -29,7 +30,7 @@ const PERM_CHIP = {
   none: ['ok', 'Immer dabei'],
 };
 const SETTINGS_KIND = { kalender: 'calendar', erinnerungen: 'reminders', kontakte: 'contacts', mail: 'automation', whatsapp: 'appdata' };
-const APP_COLOR = { kalender: 'sky', todos: 'orange', whatsapp: 'green', mail: 'sky', erinnerungen: 'orange', kontakte: 'green', wetter: 'amber' };
+const APP_COLOR = { kalender: 'violet', todos: 'orange', whatsapp: 'green', mail: 'sky', erinnerungen: 'pink', kontakte: 'teal', wetter: 'amber' };
 
 function chip(state) {
   const [cls, label] = PERM_CHIP[state] || ['off', state];
@@ -40,7 +41,7 @@ function frame(tab, ...content) {
   return h('main', { class: 'page' },
     h('h1', {}, 'Einstellungen'),
     h('div', { class: 'settings' },
-      h('nav', { class: 'settings-nav', 'aria-label': 'Bereiche' }, TABS.map(([id, label, ic]) => h('a', { href: `#/einstellungen/${id}`, 'aria-current': tab === id ? 'page' : null }, h('span', { html: ICONS[ic] }), h('span', {}, label)))),
+      h('nav', { class: 'settings-nav', 'aria-label': 'Bereiche' }, TABS.map(([id, label, ic, color]) => h('a', { class: color, href: `#/einstellungen/${id}`, 'aria-current': tab === id ? 'page' : null }, h('span', { class: 'nav-ic', html: ICONS[ic] }), h('span', {}, label)))),
       h('div', { class: 'settings-main' }, ...content)));
 }
 
@@ -107,8 +108,8 @@ function appRow(a, mac) {
   }
   if (a.id === 'kalender' && (a.permission === 'granted' || !mac)) extra.append(calendarPicker());
   if (a.id === 'wetter') extra.append(weatherPicker());
-  return h('div', { class: 'app-row' },
-    h('span', { class: `tile ${APP_COLOR[a.id] || 'orange'}`, html: ICONS[a.icon] || ICONS.grid }),
+  return h('div', { class: `app-row ${APP_COLOR[a.id] || 'orange'}` },
+    h('span', { class: 'tile', html: ICONS[a.icon] || ICONS.grid }),
     h('div', { class: 'info' }, h('div', { class: 'name' }, a.name, chip(a.permission)), h('p', { class: 'text' }, a.text)),
     side,
     extra);
@@ -190,6 +191,119 @@ function weatherPicker() {
   return h('div', { class: 'stack-tight' }, current, h('div', { class: 'inline' }, q, here), results);
 }
 
+// ---------------------------------------------------------------- Claude
+
+function ago(ms) {
+  const min = Math.round((Date.now() - ms) / 60000);
+  if (min < 2) return 'gerade eben';
+  if (min < 60) return `vor ${min} Minuten`;
+  const hrs = Math.round(min / 60);
+  if (hrs < 24) return `vor ${hrs} Stunde${hrs === 1 ? '' : 'n'}`;
+  return `am ${new Date(ms).toLocaleDateString('de-DE', { day: 'numeric', month: 'long' })}`;
+}
+
+async function claudePage() {
+  let info = await api('GET', '/api/claude-app');
+  const state = h('span', { class: 'claude-state' });
+  const paintState = () => {
+    const on = Boolean(info.lastSeen);
+    state.className = `claude-state ${on ? 'on' : 'wait'}`;
+    state.replaceChildren(h('span', { class: 'led' }), on ? `Verbunden – Claude hat zuletzt ${ago(info.lastSeen)} mit mir gearbeitet` : 'Noch nicht verbunden');
+  };
+  paintState();
+  let watcher = null;
+  const watch = () => {
+    clearInterval(watcher);
+    const before = info.lastSeen || 0;
+    const until = Date.now() + 180000;
+    watcher = setInterval(async () => {
+      if (!state.isConnected || Date.now() > until) return clearInterval(watcher);
+      try {
+        info = await api('GET', '/api/claude-app');
+      } catch {
+        return undefined;
+      }
+      if ((info.lastSeen || 0) > before) {
+        clearInterval(watcher);
+        paintState();
+        toast('Verbunden! Frag Claude jetzt zum Beispiel: „Was steht heute bei mir an?“');
+      }
+      return undefined;
+    }, 2500);
+  };
+  const download = h('a', { class: 'btn btn-quiet', href: 'https://claude.ai/download', target: '_blank', rel: 'noopener', hidden: info.installed || !info.possible }, icon('download'), 'Claude-App laden');
+  const connect = h('button', { class: 'btn btn-big', type: 'button', disabled: !info.possible, onclick: async () => {
+    connect.disabled = true;
+    try {
+      const r = await api('POST', '/api/claude-app/install');
+      if (r.opened) {
+        toast('Claude ist offen – klick dort auf „Installieren“.');
+        watch();
+      } else {
+        download.hidden = false;
+        toast('Ich habe die Claude-App nicht gefunden. Lade sie zuerst und klick dann nochmal hier.', 'error');
+      }
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+    connect.disabled = false;
+  } }, icon('sparkle'), info.lastSeen ? 'Nochmal verbinden' : 'Mit Claude verbinden');
+
+  const configBtn = h('button', { class: 'btn btn-quiet btn-small', type: 'button', disabled: !info.possible, onclick: async () => {
+    try {
+      if (info.configEntry) {
+        info = await api('DELETE', '/api/claude-app/config');
+        toast('Eintrag entfernt. Beende Claude einmal ganz und öffne es neu.');
+      } else {
+        info = await api('POST', '/api/claude-app/config');
+        toast('Eingetragen. Beende Claude jetzt ganz (⌘Q) und öffne es neu.');
+        watch();
+      }
+      configBtn.textContent = info.configEntry ? 'Eintrag wieder entfernen' : 'Direkt in Claude eintragen';
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  } }, info.configEntry ? 'Eintrag wieder entfernen' : 'Direkt in Claude eintragen');
+
+  return [
+    h('h2', {}, 'Claude'),
+    h('section', { class: 'claude-hero claude' },
+      h('div', { class: 'top' }, h('span', { class: 'claude-mark', html: ICONS.sparkle }),
+        h('div', { class: 'stack-tight' }, h('h3', {}, 'Mit Claude verbinden'), h('p', { class: 'hint' }, 'Dann arbeitet Claude in der Claude-App auf deinem Mac direkt mit deinem Assistenten – mit deinen Terminen, To-dos, WhatsApp, Mails und Erinnerungen.'))),
+      state,
+      h('div', { class: 'examples' }, ['Was steht heute bei mir an?', 'Hab ich Freitagnachmittag Zeit?', 'Schlag mir eine Antwort an Lisa vor', 'Setz mir ein To-do: Steuer machen, morgen'].map((t) => h('span', {}, `„${t}“`))),
+      h('div', { class: 'row-actions inline' }, connect, download),
+      h('ol', { class: 'steps-big' },
+        h('li', {}, h('span', {}, 'Klick auf ', h('b', {}, '„Mit Claude verbinden“'), '.')),
+        h('li', {}, h('span', {}, 'Claude öffnet sich und fragt, ob es die Erweiterung „Assistent“ installieren soll – klick auf ', h('b', {}, 'Installieren'), '.')),
+        h('li', {}, h('span', {}, 'Fertig. Frag Claude einfach. Der Assistent muss dafür auf dem Mac laufen.'))),
+      !info.possible ? h('p', { class: 'hint' }, 'Das geht nur in der Mac-App „Assistent“.') : ''),
+    h('section', { class: 'panel tinted green' },
+      h('div', { class: 'panel-head' }, h('span', { class: 'tile', html: ICONS.shield }), h('h3', {}, 'Sicher')),
+      h('ul', { class: 'steps-help' },
+        h('li', {}, 'Claude schickt Nachrichten und Mails nur und löscht nur, wenn du ausdrücklich Ja sagst.'),
+        h('li', {}, 'Alles bleibt auf deinem Mac – die Verbindung läuft nur innerhalb deines Macs.'),
+        h('li', {}, 'Trennen: in Claude unter Einstellungen → Erweiterungen „Assistent“ ausschalten – oder hier den Schlüssel erneuern. Dann ist jede bisherige Verbindung gesperrt.')),
+      h('div', { class: 'row-actions' }, h('button', { class: 'btn btn-quiet btn-small', type: 'button', onclick: async () => {
+        try {
+          await api('POST', '/api/connector/token');
+          toast('Neuer Schlüssel – alte Verbindungen sind gesperrt. Verbinde Claude danach neu.');
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+      } }, icon('lock'), 'Schlüssel erneuern')),
+      h('details', { class: 'more' },
+        h('summary', {}, 'Klappt nicht?'),
+        h('div', { class: 'stack-tight' },
+          h('p', { class: 'hint' }, 'Dann trage ich mich direkt in Claudes Einstellungen ein. Danach Claude ganz beenden (⌘Q) und neu öffnen. Deine anderen Einträge bleiben, eine Sicherung lege ich daneben.'),
+          h('div', { class: 'row-actions' }, configBtn, h('a', { class: 'link-btn', href: '#/verbindungen/claude-app' }, 'Von Hand einrichten'))))),
+    h('section', { class: 'panel tinted pink' },
+      h('div', { class: 'panel-head' }, h('span', { class: 'tile', html: ICONS.brain }), h('h3', {}, 'Andersherum: Claude als Gehirn')),
+      h('p', { class: 'hint' }, 'Der Assistent kann auch selbst mit Claude denken statt mit Apple Intelligence – am schlauesten für schwierige Fragen. Dafür brauchst du einen API-Schlüssel, das kostet pro Nutzung ein paar Cent.'),
+      h('div', { class: 'row-actions' }, h('a', { class: 'btn btn-quiet btn-small', href: '#/einstellungen/gehirn' }, 'Zum Gehirn'))),
+  ];
+}
+
 const PAGES = {
   async apps() {
     const data = await api('GET', '/api/apps');
@@ -216,8 +330,8 @@ const PAGES = {
           toast(err.message, 'error');
         }
       });
-      return h('article', { class: `plugin${p.enabled ? ' on' : ''}` },
-        h('div', { class: 'top' }, h('span', { class: `tile ${p.color}`, html: ICONS[p.icon] || ICONS.puzzle }), h('h3', {}, p.name), h('span', { class: 'spacer' }), p.enabled ? h('span', { class: 'chip ok' }, icon('check'), 'Aktiv') : ''),
+      return h('article', { class: `plugin ${p.color || 'orange'}${p.enabled ? ' on' : ''}` },
+        h('div', { class: 'top' }, h('span', { class: 'tile', html: ICONS[p.icon] || ICONS.puzzle }), h('h3', {}, p.name), h('span', { class: 'spacer' }), p.enabled ? h('span', { class: 'chip ok' }, icon('check'), 'Aktiv') : ''),
         h('p', {}, p.description),
         p.examples.length ? h('p', { class: 'ex' }, `„${p.examples[0]}“`) : '',
         h('div', { class: 'inline' }, btn, p.widget ? h('span', { class: 'chip' }, 'mit Widget') : '', p.needsMac ? h('span', { class: 'chip off' }, 'nur Mac-App') : ''));
@@ -240,14 +354,35 @@ const PAGES = {
         toast(err.message, 'error');
       }
     };
-    const draw = () => ul.replaceChildren(...widgets.map((w, i) => h('li', {},
-      h('span', { class: `tile ${w.color || 'orange'}`, html: ICONS[w.icon] || ICONS.grid }),
+    const draw = () => ul.replaceChildren(...widgets.map((w, i) => h('li', { class: w.color || 'orange' },
+      h('span', { class: 'tile', html: ICONS[w.icon] || ICONS.grid }),
       h('span', { class: 'name' }, w.title),
       h('button', { class: 'icon-btn', type: 'button', 'aria-label': `${w.title} nach oben`, html: ICONS.up, disabled: i === 0, onclick: async () => { [widgets[i - 1], widgets[i]] = [widgets[i], widgets[i - 1]]; draw(); await save(); } }),
       h('button', { class: 'icon-btn', type: 'button', 'aria-label': `${w.title} nach unten`, html: ICONS.down, disabled: i === widgets.length - 1, onclick: async () => { [widgets[i + 1], widgets[i]] = [widgets[i], widgets[i + 1]]; draw(); await save(); } }),
       switchInput(w.on, async (on) => { w.on = on; await save(); }, { label: `${w.title} zeigen` }))));
     draw();
-    return [h('h2', {}, 'Startseite'), h('p', { class: 'lead' }, 'Welche Widgets du siehst und in welcher Reihenfolge. Plugins mit Widget tauchen hier auf, sobald du sie hinzufügst.'), ul];
+    const s = await api('GET', '/api/settings');
+    const name = h('input', { type: 'text', value: s.userName || '', maxlength: '40', placeholder: 'Dein Vorname', autocomplete: 'given-name', 'aria-label': 'Dein Name' });
+    const saveName = async () => {
+      try {
+        await api('PUT', '/api/settings', { userName: name.value.trim() });
+        toast(name.value.trim() ? `Hallo, ${name.value.trim()}! 👋` : 'Gespeichert.');
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    };
+    name.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') saveName();
+    });
+    return [
+      h('h2', {}, 'Startseite'),
+      h('section', { class: 'panel tinted orange' },
+        h('div', { class: 'panel-head' }, h('span', { class: 'tile', html: ICONS.person }), h('h3', {}, 'Wie soll ich dich nennen?')),
+        h('div', { class: 'inline' }, name, h('button', { class: 'btn btn-small', type: 'button', onclick: saveName }, 'Speichern')),
+        h('p', { class: 'hint' }, 'Dann begrüße ich dich mit Namen.')),
+      h('p', { class: 'lead' }, 'Welche Widgets du siehst und in welcher Reihenfolge. Plugins mit Widget tauchen hier auf, sobald du sie hinzufügst. Fragst du mich etwas, mache ich das passende Widget groß – oder öffne oben ein neues, das du mit dem X wieder wegklickst.'),
+      ul,
+    ];
   },
 
   async gehirn() {
@@ -259,7 +394,7 @@ const PAGES = {
       } catch (err) {
         toast(err.message, 'error');
       }
-    } }, h('span', { class: `tile ${mode === 'apple' ? 'green' : mode === 'claude' ? 'orange' : 'sky'}`, html: mode === 'auto' ? ICONS.refresh : ICONS.brain }), h('span', { class: 't' }, h('span', {}, title), h('small', {}, text)), statusEl || '');
+    } }, h('span', { class: `tile ${mode === 'apple' ? 'green' : mode === 'claude' ? 'claude' : 'sky'}`, html: mode === 'auto' ? ICONS.refresh : mode === 'claude' ? ICONS.sparkle : ICONS.brain }), h('span', { class: 't' }, h('span', {}, title), h('small', {}, text)), statusEl || '');
     const appleStatus = b.apple.available ? h('span', { class: 'chip ok' }, icon('check'), 'Bereit') : h('span', { class: 'chip off' }, 'nicht verfügbar');
     const claudeStatus = b.claude.available ? h('span', { class: 'chip ok' }, icon('check'), 'Bereit') : h('span', { class: 'chip off' }, 'kein Schlüssel');
     const key = h('input', { type: 'password', autocomplete: 'off', placeholder: b.hasKey ? 'Gespeichert – leer lassen zum Behalten' : 'sk-ant-…', 'aria-label': 'Claude-API-Schlüssel' });
@@ -297,8 +432,11 @@ const PAGES = {
   },
 
   async stimme() {
-    const sec = voiceSection();
-    return [h('h2', {}, 'Stimme'), h('p', { class: 'lead' }, 'Unten in der Leiste schaltest du mit dem Lautsprecher zwischen „Nur Text“ und „Text + Stimme“ um. Hier stellst du die Stimme ein.'), h('section', { class: 'panel' }, ...sec.childNodes)];
+    return voicePage();
+  },
+
+  async claude() {
+    return claudePage();
   },
 
   async tagesplan() {
@@ -363,9 +501,9 @@ const PAGES = {
             rerender('erweitert');
           } }, 'iCloud trennen') : '')),
       h('section', { class: 'panel' },
-        h('h3', {}, 'In der Claude-App benutzen'),
-        h('p', { class: 'hint' }, 'Mit dem Connector kann Claude (Desktop-App) direkt mit deinem Assistenten arbeiten – mit deinem Claude-Abo.'),
-        h('div', { class: 'row-actions' }, h('a', { class: 'btn btn-quiet btn-small', href: '#/verbindungen/claude-app' }, 'Connector einrichten'))),
+        h('h3', {}, 'Claude von Hand verbinden'),
+        h('p', { class: 'hint' }, 'Normalerweise geht das mit einem Klick unter Einstellungen → Claude. Hier stehen die Angaben zum Selbst-Eintragen und für claude.ai.'),
+        h('div', { class: 'row-actions' }, h('a', { class: 'btn btn-quiet btn-small', href: '#/einstellungen/claude' }, 'Zu „Claude“'), h('a', { class: 'btn btn-quiet btn-small', href: '#/verbindungen/claude-app' }, 'Von Hand einrichten'))),
       h('section', { class: 'panel' },
         opt('Im WLAN freigeben', 'Damit du die Startseite auch auf iPhone und iPad öffnen kannst (ohne Kalender & Co. vom Mac).', switchInput(s.lanAccess, async (on) => {
           await api('PUT', '/api/settings', { lanAccess: on }).catch((err) => toast(err.message, 'error'));
@@ -408,11 +546,21 @@ export async function renderOnboarding(step = 'hallo') {
   const dots = h('div', { class: 'dots', 'aria-hidden': 'true' }, STEPS.map((s, i) => h('i', { class: i <= idx ? 'on' : '' })));
   let content;
   if (step === 'hallo') {
+    const s = await api('GET', '/api/settings').catch(() => ({}));
+    const name = h('input', { type: 'text', value: s.userName || '', maxlength: '40', placeholder: 'Wie soll ich dich nennen? (optional)', autocomplete: 'given-name', 'aria-label': 'Dein Name' });
+    const go2 = async () => {
+      if (name.value.trim() !== (s.userName || '')) await api('PUT', '/api/settings', { userName: name.value.trim() }).catch(() => {});
+      next();
+    };
+    name.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') go2();
+    });
     content = [
       h('button', { class: 'orb big', type: 'button', tabindex: '-1', 'aria-hidden': 'true', html: ICONS.mic }),
-      h('h1', {}, 'Hallo! Ich bin dein Assistent.'),
+      h('h1', {}, 'Hallo! Ich bin dein ', h('span', { class: 'grad-text' }, 'Assistent'), '.'),
       h('p', { class: 'lead' }, 'Ich kümmere mich um deine Termine, To-dos, Mails und WhatsApp – direkt auf deinem Mac, ohne Passwörter. Bevor ich zum ersten Mal auf eine App zugreife, fragt macOS dich mit einem kleinen Fenster. Ein Klick auf „Erlauben“ genügt.'),
-      h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'button', onclick: next }, 'Los geht’s')),
+      h('div', { class: 'field' }, h('label', {}, 'Wie heißt du?'), name),
+      h('div', { class: 'actions' }, h('button', { class: 'btn btn-big', type: 'button', onclick: go2 }, 'Los geht’s')),
     ];
   } else if (step === 'mac') {
     const perms = await permissionList();
@@ -434,8 +582,8 @@ export async function renderOnboarding(step = 'hallo') {
     ];
   } else if (step === 'apps') {
     const data = await api('GET', '/api/apps');
-    const rows = data.apps.filter((a) => a.permission !== 'none').map((a) => h('div', { class: 'app-row' },
-      h('span', { class: `tile ${APP_COLOR[a.id] || 'orange'}`, html: ICONS[a.icon] || ICONS.grid }),
+    const rows = data.apps.filter((a) => a.permission !== 'none').map((a) => h('div', { class: `app-row ${APP_COLOR[a.id] || 'orange'}` },
+      h('span', { class: 'tile', html: ICONS[a.icon] || ICONS.grid }),
       h('div', { class: 'info' }, h('div', { class: 'name' }, a.name, chip(a.permission)), h('p', { class: 'text' }, a.text)),
       h('div', { class: 'side' }, a.permission === 'unknown' ? h('button', { class: 'btn btn-quiet btn-small', type: 'button', onclick: async (e) => {
         const btn = e.currentTarget;
@@ -461,7 +609,7 @@ export async function renderOnboarding(step = 'hallo') {
     content = [
       h('h1', {}, 'Fertig!'),
       h('p', { class: 'lead' }, b.active === 'apple' ? 'Ich denke mit Apple Intelligence – direkt auf deinem Mac, ohne Anmeldung.' : b.active === 'claude' ? 'Ich denke mit Claude.' : `Für richtige Antworten brauche ich noch ein Gehirn. ${b.reasons[b.apple.reason] || ''} Bis dahin zeige ich dir deinen Überblick – und unter Einstellungen → Gehirn kannst du Claude dazunehmen.`),
-      h('p', { class: 'lead' }, 'Unten auf der Startseite tippst du auf die orange Kugel und sprichst – oder schreibst. Mit dem Lautsprecher daneben stellst du ein, ob ich auch laut antworte.'),
+      h('p', { class: 'lead' }, 'Unten auf der Startseite tippst du auf die bunte Kugel und sprichst – oder schreibst. Mit dem Lautsprecher daneben stellst du ein, ob ich auch laut antworte. Schönere Stimmen findest du unter Einstellungen → Stimme, und unter Einstellungen → Claude verbindest du mich mit Claude.'),
       h('div', { class: 'actions' }, h('button', { class: 'btn', type: 'button', onclick: async () => {
         await api('POST', '/api/setup/finish').catch(() => {});
         go('/');

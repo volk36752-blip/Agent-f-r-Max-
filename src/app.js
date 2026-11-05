@@ -233,12 +233,12 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
   // ---------- Dashboard ----------
 
   const CORE_WIDGETS = [
-    { id: 'termine', title: 'Termine', app: 'kalender', icon: 'calendar', color: 'sky' },
+    { id: 'termine', title: 'Termine', app: 'kalender', icon: 'calendar', color: 'violet' },
     { id: 'todos', title: 'To-dos', app: 'todos', icon: 'check', color: 'orange' },
     { id: 'whatsapp', title: 'WhatsApp', app: 'whatsapp', icon: 'chat', color: 'green' },
     { id: 'mail', title: 'Mail', app: 'mail', icon: 'mail', color: 'sky' },
     { id: 'wetter', title: 'Wetter', app: 'wetter', icon: 'weather', color: 'amber' },
-    { id: 'erinnerungen', title: 'Erinnerungen', app: 'erinnerungen', icon: 'bell', color: 'orange', defaultOff: true },
+    { id: 'erinnerungen', title: 'Erinnerungen', app: 'erinnerungen', icon: 'bell', color: 'pink', defaultOff: true },
   ];
 
   function widgetLayout() {
@@ -324,6 +324,8 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
       now: { date: today, time: now.time, weekday: WEEKDAYS[new Date(Date.UTC(now.y, now.m - 1, now.d)).getUTCDay()], timezone: tz },
       connections: services.status(),
       mac: bridge.connected(),
+      userName: stores.config.data.userName || '',
+      claudeApp: { possible: claudeLinkPossible(), lastSeen: stores.state.data.claudeApp?.lastSeen || null },
       brain: { active: b.active, mode: b.mode, appleReason: b.apple.reason },
       briefing: stores.state.data.briefing?.date === today ? stores.state.data.briefing : null,
       plan: { running: planner.isRunning(), lastError: stores.state.data.plan.date === today ? stores.state.data.plan.lastError : null, doneToday: stores.state.data.lastPlanDate === today, planTime: stores.config.data.planTime },
@@ -650,6 +652,7 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
       planEnabled: c.planEnabled,
       timezone: c.timezone,
       lanAccess: c.lanAccess,
+      userName: c.userName || '',
       lanUrls: app.lanUrls(),
       port: app.port,
       hostOverride: Boolean(process.env.HOST),
@@ -667,6 +670,7 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
       patch.timezone = body.timezone;
     }
     if (body.lanAccess !== undefined) patch.lanAccess = Boolean(body.lanAccess);
+    if (body.userName !== undefined) patch.userName = String(body.userName || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 40);
     const lanChanged = patch.lanAccess !== undefined && patch.lanAccess !== stores.config.data.lanAccess;
     stores.config.update((c) => Object.assign(c, patch));
     if (patch.timezone) {

@@ -78,7 +78,21 @@ export const ICONS = {
   lock: svg('<rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>'),
   refresh: svg('<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3L19.5 9"/><path d="M19.5 4v5h-5"/>'),
   laptop: svg('<rect x="5" y="5" width="14" height="10" rx="1.5"/><path d="M3 18.5h18"/>'),
+  expand: svg('<path d="M14 4h6v6M10 20H4v-6M20 4l-6.5 6.5M4 20l6.5-6.5"/>'),
+  shrink: svg('<path d="M20 10h-6V4M4 14h6v6M14 10l6.5-6.5M10 14l-6.5 6.5"/>'),
+  sparkle: svg('<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>'),
+  download: svg('<path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14" stroke-width="2"/>'),
+  wave: svg('<path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4" stroke-width="2"/>'),
+  heart: svg('<path d="M12 19.5s-7.5-4.4-7.5-10A4.3 4.3 0 0 1 12 7a4.3 4.3 0 0 1 7.5 2.5c0 5.6-7.5 10-7.5 10z"/>'),
 };
+
+// Farbe für Personen-Kreise: immer dieselbe Farbe für denselben Namen
+const AVATAR_COLORS = ['violet', 'sky', 'green', 'pink', 'amber', 'teal', 'orange'];
+export function colorFor(name) {
+  let n = 0;
+  for (const ch of String(name || '')) n = (n * 31 + ch.codePointAt(0)) >>> 0;
+  return AVATAR_COLORS[n % AVATAR_COLORS.length];
+}
 
 export function icon(name) {
   const span = document.createElement('span');

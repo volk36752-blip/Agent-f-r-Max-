@@ -1,7 +1,7 @@
 // Einrichtung, Verbindungen und Einstellungen.
 
 import { h, ICONS, toast, api, go, copy, shell } from './ui.js';
-import { speech, voiceSettings, rankedVoices, germanVoices, ears, isMacApp } from './voice.js';
+import { isMacApp } from './voice.js';
 import { permissionList } from './permissions.js';
 
 const root = { replaceChildren: (...n) => document.getElementById('app').replaceChildren(...n) };
@@ -324,51 +324,3 @@ export async function renderSingleStep(step) {
 
 // ---------------- Stimme ----------------
 
-export function voiceSection() {
-  const section = h('section', {});
-  const fill = () => {
-    const voices = rankedVoices();
-    const select = h('select', { id: 'voice' },
-      h('option', { value: '' }, voices.length ? `Automatisch (${voices[0].name})` : 'Automatisch'),
-      voices.map((v) => h('option', { value: v.voiceURI, selected: v.voiceURI === voiceSettings.voiceURI }, `${v.name}${v.quality && v.quality !== 'standard' ? ` (${v.quality})` : ''}${v.localService ? '' : ' (online)'}`)));
-    select.addEventListener('change', () => {
-      voiceSettings.voiceURI = select.value;
-      speech.test();
-    });
-    const slider = (id, label, min, max, step, get, set, fmt) => {
-      const out = h('output', { for: id }, fmt(get()));
-      const input = h('input', { type: 'range', id, min, max, step, value: String(get()) });
-      input.addEventListener('input', () => {
-        set(Number(input.value));
-        out.textContent = fmt(Number(input.value));
-      });
-      input.addEventListener('change', () => speech.test());
-      return h('div', { class: 'slider-row' }, h('label', { for: id }, label), input, out);
-    };
-    const mode = h('input', { type: 'checkbox', id: 'mode-voice', checked: voiceSettings.mode === 'stimme' });
-    mode.addEventListener('change', () => {
-      voiceSettings.mode = mode.checked ? 'stimme' : 'text';
-      toast(mode.checked ? 'Der Agent antwortet jetzt auch mit Stimme.' : 'Der Agent antwortet nur noch mit Text.');
-    });
-    const keep = h('input', { type: 'checkbox', id: 'keep', checked: voiceSettings.keepListening });
-    keep.addEventListener('change', () => {
-      voiceSettings.keepListening = keep.checked;
-    });
-    section.replaceChildren(
-      h('h2', {}, 'Stimme'),
-      !speech.supported ? h('p', { class: 'hint' }, 'Dieser Browser kann nicht vorlesen.') : '',
-      h('label', { class: 'check' }, mode, h('span', {}, 'Antworten auch vorlesen')),
-      h('label', { class: 'check' }, keep, h('span', {}, 'Wenn ich gesprochen habe: nach der Antwort automatisch wieder zuhören')),
-      h('div', { class: 'field' }, h('label', { for: 'voice' }, 'Stimme'), select),
-      slider('rate', 'Tempo', '0.7', '1.2', '0.02', () => voiceSettings.rate, (v) => { voiceSettings.rate = v; }, (v) => `${Math.round(v * 100)} %`),
-      slider('pitch', 'Tonhöhe', '0.5', '1.2', '0.02', () => voiceSettings.pitch, (v) => { voiceSettings.pitch = v; }, (v) => (v < 0.9 ? 'tief' : v > 1.05 ? 'hoch' : 'normal')),
-      h('div', { class: 'inline' }, h('button', { class: 'btn btn-quiet', type: 'button', onclick: () => speech.test() }, 'Probe hören')),
-      h('p', { class: 'hint' }, germanVoices().length ? 'Die Stimmen kommen von deinem Gerät. Bessere, tiefere Stimmen kannst du nachladen – am Mac unter Systemeinstellungen → Bedienungshilfen → Gesprochene Inhalte → Systemstimme, am iPhone unter Einstellungen → Bedienungshilfen → Gesprochene Inhalte → Stimmen → Deutsch. Danach die Seite neu laden.' : 'Auf diesem Gerät habe ich keine deutsche Stimme gefunden. Am Mac kannst du eine unter Systemeinstellungen → Bedienungshilfen → Gesprochene Inhalte → Systemstimme nachladen.'),
-      h('p', { class: 'hint' }, ears.problem() || 'Sprechen: Im Dashboard auf die orange Kugel tippen. Beim ersten Mal fragt der Browser nach dem Mikrofon.'),
-      h('p', { class: 'hint' }, 'Diese Einstellungen gelten nur für dieses Gerät.'));
-  };
-  fill();
-  window.addEventListener('assistent-voices', fill, { once: true });
-  if (speech.supported && !germanVoices().length) window.speechSynthesis?.addEventListener?.('voiceschanged', fill, { once: true });
-  return section;
-}

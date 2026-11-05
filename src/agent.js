@@ -109,6 +109,7 @@ export function systemPrompt(ctx, purpose, { voice = false } = {}) {
   ].filter(Boolean);
   const lines = [
     'Du bist der persönliche Assistent des Nutzers in seinem Dashboard „Assistent“ auf dem Mac. Du antwortest immer auf Deutsch, in Du-Form, kurz und freundlich.',
+    ctx.stores?.config.data.userName ? `Der Nutzer heißt ${ctx.stores.config.data.userName}.` : '',
     `Jetzt ist ${describeNow(ctx.services.tz())}. Rechne relative Angaben wie „morgen“ oder „Freitag“ von diesem Datum aus.`,
     `Verfügbar: ${connected.join(', ')}.`,
     '',
@@ -247,6 +248,7 @@ export function appleInstructions(ctx, purpose, { voice = false } = {}) {
   });
   return [
     'Du bist „Assistent“, der persönliche Helfer des Nutzers auf seinem Mac. Antworte immer auf Deutsch, in Du-Form, kurz und freundlich (meist 1–3 Sätze).',
+    ctx.stores?.config.data.userName ? `Der Nutzer heißt ${ctx.stores.config.data.userName}.` : '',
     `Jetzt: ${WEEKDAYS[weekdayOf(n.date)]}, ${n.date}, ${n.time} Uhr. Tage: ${days.join(', ')}.`,
     'Benutze die Werkzeuge, statt zu raten. Datum immer als JJJJ-MM-TT, Zeitpunkt als JJJJ-MM-TTTHH:MM.',
     'Will der Nutzer jemandem schreiben oder antworten, rufe das Vorschläge-Werkzeug mit genau drei kurzen, unterschiedlichen Vorschlägen auf. Gesendet wird erst, wenn er einen antippt. Wiederhole die Vorschläge nicht.',

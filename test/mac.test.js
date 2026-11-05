@@ -277,6 +277,40 @@ test('Plugins: hinzufügen bringt Werkzeug und Widget', async () => {
   assert.equal(r.data.widgets.find((w) => w.id === 'mail').on, false);
 });
 
+test('Groß aufgeklappt: Widgets zeigen mehr (Woche, mehr Chats, mehr Schlagzeilen)', async () => {
+  await app.services.calendar.create({ title: 'Kino', start: `${addDaysIso(today, 4)}T20:00` });
+  let r = await api('GET', '/api/widget/termine?gross=1');
+  assert.equal(r.data.state, 'ok', JSON.stringify(r.data));
+  assert.equal(r.data.data.days.length, 7);
+  assert.equal(r.data.data.days[0].date, today);
+  assert.deepEqual(r.data.data.days[4].events.map((e) => e.title), ['Kino']);
+  assert.ok(r.data.data.today, 'die kleine Ansicht bleibt dabei');
+  r = await api('GET', '/api/widget/termine');
+  assert.equal(r.data.data.days, undefined);
+  r = await api('GET', '/api/widget/plugin:schlagzeilen?gross=1');
+  assert.equal(r.data.state, 'ok');
+  assert.equal(r.data.data.items[0].text, 'Kurz & knapp');
+});
+
+test('Name: Begrüßung und Agent kennen ihn', async () => {
+  let r = await api('PUT', '/api/settings', { userName: '  Alex<script>  ' });
+  assert.equal(r.status, 200);
+  r = await api('GET', '/api/settings');
+  assert.equal(r.data.userName, 'Alexscript');
+  r = await api('GET', '/api/dashboard');
+  assert.equal(r.data.userName, 'Alexscript');
+  script.lastAi = null;
+  const prev = script.ai;
+  script.ai = (a) => {
+    script.lastAi = a;
+    return { text: 'Hallo!' };
+  };
+  await chat('Hallo');
+  script.ai = prev;
+  assert.match(script.lastAi.instructions, /Der Nutzer heißt Alexscript/);
+  await api('PUT', '/api/settings', { userName: '' });
+});
+
 test('Ohne Gehirn: Überblick und ehrlicher Hinweis', async () => {
   await api('PUT', '/api/brain', { mode: 'claude' });
   const events = await chat('Was steht heute an?');

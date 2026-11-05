@@ -1,6 +1,6 @@
 // Sprechen und Vorlesen – mit den Stimmen, die im Browser eingebaut sind (Safari, Chrome, Edge).
 
-import { local } from './ui.js';
+import { local, api } from './ui.js';
 
 // ---------- Einstellungen (pro Gerät) ----------
 
@@ -82,23 +82,36 @@ if (nativeHandler) {
   };
 }
 
-// Stimmen (neu) laden – z. B. nachdem du in den Systemeinstellungen eine bessere geladen hast
-export function reloadVoices() {
-  if (!nativeHandler) {
-    synth?.getVoices();
-    window.dispatchEvent(new Event('assistent-voices'));
-    return Promise.resolve(germanVoices());
+// Stimmen aus dem Internet, die schon geladen sind (spricht der Assistent selbst – auch fürs iPhone)
+let netVoices = [];
+let engineReady = false;
+async function loadNetVoices() {
+  try {
+    const data = await api('GET', '/api/stimmen');
+    engineReady = Boolean(data.engine);
+    netVoices = engineReady ? data.voices.filter((v) => v.installed).map((v) => ({ name: v.name, lang: 'de-DE', voiceURI: `netz:${v.id}`, localService: true, quality: 'internet', male: v.gender === 'männlich', nativeScore: v.score, level: v.level })) : [];
+  } catch {
+    netVoices = [];
   }
-  return new Promise((resolve) => {
-    bridge.call('voices', {}, (m) => {
-      bridge.handlers.delete(m.id);
-      nativeVoices = (m.voices || []).map((v) => ({ name: v.name, lang: v.lang, voiceURI: v.id, localService: true, quality: v.quality, male: v.male, nativeScore: v.score }));
-      window.dispatchEvent(new Event('assistent-voices'));
-      resolve(nativeVoices);
-    });
-  });
 }
-if (nativeHandler) reloadVoices();
+
+// Stimmen (neu) laden – z. B. nachdem du eine geladen hast
+export async function reloadVoices() {
+  const net = loadNetVoices();
+  if (nativeHandler) {
+    await new Promise((resolve) => {
+      bridge.call('voices', {}, (m) => {
+        bridge.handlers.delete(m.id);
+        nativeVoices = (m.voices || []).map((v) => ({ name: v.name, lang: v.lang, voiceURI: v.id, localService: true, quality: v.quality, male: v.male, nativeScore: v.score }));
+        resolve();
+      });
+    });
+  } else synth?.getVoices();
+  await net;
+  window.dispatchEvent(new Event('assistent-voices'));
+  return germanVoices();
+}
+if (typeof window !== 'undefined') reloadVoices();
 
 const PREMIUM = /(Premium|Natural|Neural|Siri)/i;
 const ENHANCED = /(Erweitert|Enhanced|verbessert)/i;
@@ -112,11 +125,17 @@ export function voiceQuality(v) {
   return v.localService === false ? 'online' : 'standard';
 }
 
-export function germanVoices() {
+function deviceVoices() {
   if (nativeHandler) return nativeVoices;
   if (!synth) return [];
   return synth.getVoices().filter((v) => /^de/i.test(v.lang));
 }
+
+export function germanVoices() {
+  return [...deviceVoices(), ...netVoices];
+}
+
+const isNet = (uri) => String(uri || '').startsWith('netz:');
 
 function score(v) {
   if (v.nativeScore !== undefined) return v.nativeScore;
@@ -132,7 +151,7 @@ function score(v) {
 
 // Am liebsten die natürlichste deutsche Stimme, die das Gerät hat
 export function pickVoice() {
-  const voices = germanVoices();
+  const voices = deviceVoices();
   const saved = voiceSettings.voiceURI;
   if (saved) {
     const hit = voices.find((v) => v.voiceURI === saved) || (synth?.getVoices() || []).find((v) => v.voiceURI === saved);
@@ -178,7 +197,7 @@ export function cleanForSpeech(text) {
 }
 
 export const speech = {
-  supported: Boolean(nativeHandler || (synth && typeof SpeechSynthesisUtterance !== 'undefined')),
+  supported: Boolean(nativeHandler || (synth && typeof SpeechSynthesisUtterance !== 'undefined') || typeof Audio !== 'undefined'),
   buffer: '',
   pending: 0,
   generation: 0,
@@ -217,16 +236,32 @@ export const speech = {
         cb?.();
       }
     };
+    // Automatisch: die beste Stimme – das kann auch eine geladene Internet-Stimme sein
+    let chosen = voice ?? voiceSettings.voiceURI;
+    if (!chosen && netVoices.length) {
+      const best = rankedVoices()[0];
+      if (best && isNet(best.voiceURI)) chosen = best.voiceURI;
+    }
+    if (isNet(chosen) && netVoices.some((v) => v.voiceURI === chosen)) this.sayNet(t, chosen, gen, finish);
+    else this.sayDevice(t, isNet(chosen) ? '' : chosen, finish);
+  },
+
+  // Mit den Stimmen von macOS (Mac-App) oder des Browsers
+  sayDevice(t, voice, finish) {
     if (nativeHandler) {
-      bridge.call('speak', { text: t, rate: voiceSettings.rate, pitch: voiceSettings.pitch, voice: voice ?? voiceSettings.voiceURI }, (m) => {
+      bridge.call('speak', { text: t, rate: voiceSettings.rate, pitch: voiceSettings.pitch, voice: voice || '' }, (m) => {
         if (m.type !== 'speech-end') return;
         bridge.handlers.delete(m.id);
         finish();
       });
       return;
     }
+    if (!synth || typeof SpeechSynthesisUtterance === 'undefined') {
+      finish();
+      return;
+    }
     const u = new SpeechSynthesisUtterance(t);
-    const v = voice ? germanVoices().find((x) => x.voiceURI === voice) || pickVoice() : pickVoice();
+    const v = voice ? deviceVoices().find((x) => x.voiceURI === voice) || pickVoice() : pickVoice();
     u.lang = v?.lang || 'de-DE';
     if (v) u.voice = v;
     u.rate = voiceSettings.rate;
@@ -234,6 +269,77 @@ export const speech = {
     u.onend = finish;
     u.onerror = finish;
     synth.speak(u);
+  },
+
+  // Internet-Stimme: der Assistent macht daraus eine Tondatei. Der nächste Satz wird schon
+  // vorbereitet, während der aktuelle läuft – so gibt es kaum Pausen.
+  netChain: Promise.resolve(),
+  netStop: null,
+  audio: null,
+  sayNet(t, uri, gen, finish) {
+    const req = fetch('/api/sprechen', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'x-assistent': '1', 'content-type': 'application/json' },
+      body: JSON.stringify({ text: t, voice: uri, speed: voiceSettings.rate }),
+    }).then((r) => (r.ok ? r.blob() : Promise.reject(new Error(String(r.status)))));
+    req.catch(() => {});
+    this.netChain = this.netChain.then(async () => {
+      if (gen !== this.generation) return finish();
+      let blob;
+      try {
+        blob = await req;
+      } catch {
+        if (gen === this.generation) this.sayDevice(t, '', finish); // klappt es nicht, spricht die Mac-Stimme
+        else finish();
+        return undefined;
+      }
+      if (gen !== this.generation) return finish();
+      await this.playBlob(blob);
+      return finish();
+    });
+  },
+
+  audioEl() {
+    if (!this.audio) this.audio = new Audio();
+    return this.audio;
+  },
+
+  play(src) {
+    return new Promise((resolve) => {
+      const a = this.audioEl();
+      const done = () => {
+        a.onended = null;
+        a.onerror = null;
+        this.netStop = null;
+        resolve();
+      };
+      this.netStop = () => {
+        a.pause();
+        done();
+      };
+      a.onended = done;
+      a.onerror = done;
+      a.src = src;
+      a.play().catch(done);
+    });
+  },
+
+  async playBlob(blob) {
+    const url = URL.createObjectURL(blob);
+    try {
+      await this.play(url);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  },
+
+  // Hörprobe einer Internet-Stimme, bevor du sie lädst
+  async sample(url) {
+    this.stop();
+    this.onState('speaking');
+    await this.play(url);
+    if (!this.pending) this.onState('idle-speech');
   },
 
   // Während die Antwort hereinkommt: ganze Sätze sofort vorlesen
@@ -261,8 +367,10 @@ export const speech = {
     this.buffer = '';
     this.idleCallback = null;
     this.pending = 0;
+    this.netStop?.();
+    this.netChain = Promise.resolve();
     if (nativeHandler) bridge.call('stopSpeaking');
-    else if (this.supported) synth.cancel();
+    else if (synth) synth.cancel();
     this.onState('idle-speech');
   },
 
