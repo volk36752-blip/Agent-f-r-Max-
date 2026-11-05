@@ -72,6 +72,20 @@ export function createStores(dataDir) {
       claude: { model: DEFAULT_MODEL },
       skipped: [],
       wishes: [],
+      // Apps direkt vom Mac – ohne Passwörter
+      apps: {
+        kalender: { enabled: true, selected: null, defaultCalendar: null },
+        todos: { enabled: true },
+        whatsapp: { enabled: true, autoSend: false, askTodos: true },
+        mail: { enabled: true },
+        erinnerungen: { enabled: true },
+        kontakte: { enabled: true },
+        wetter: { enabled: true },
+      },
+      plugins: [],
+      brain: { mode: 'auto' },
+      widgets: null,
+      countryCode: '49',
     }),
     secrets: new JsonFile(file('geheim.json'), {
       passwordHash: null,
@@ -81,7 +95,7 @@ export function createStores(dataDir) {
     }),
     todos: new JsonFile(file('todos.json'), { items: [] }),
     chat: new JsonFile(file('chat.json'), { messages: [], log: [] }),
-    state: new JsonFile(file('status.json'), { lastPlanDate: null, plan: { date: null, attempts: 0, lastAttemptAt: 0, lastError: null }, briefing: null }),
+    state: new JsonFile(file('status.json'), { lastPlanDate: null, plan: { date: null, attempts: 0, lastAttemptAt: 0, lastError: null }, briefing: null, actions: {}, whatsapp: { seenMs: 0, todoKeys: [] } }),
     sessions: new JsonFile(file('sitzungen.json'), { items: {} }),
   };
 }

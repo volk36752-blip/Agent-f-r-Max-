@@ -8,10 +8,16 @@ import { fileURLToPath } from 'node:url';
 import { createStores } from './store.js';
 import { createServices, ServiceError } from './services.js';
 import { createTodos, TodoError } from './todos.js';
-import { createChat } from './agent.js';
+import { createChat, brainStatus, handleAppleToolCall, APPLE_REASONS } from './agent.js';
 import { createPlanner } from './plan.js';
 import { handleMcpMessage } from './mcp.js';
-import { ToolInputError } from './tools.js';
+import { ToolInputError, runTool } from './tools.js';
+import { createBridge, BridgeError } from './bridge.js';
+import { createApps, AppError, withRun } from './apps.js';
+import { MacError } from './mac.js';
+import { createActions, ActionError } from './actions.js';
+import { createPlugins, PluginError } from './plugins/index.js';
+import { JxaError } from './lib/jxa.js';
 import { ClaudeError, checkApiKey, MODELS } from './lib/claude.js';
 import { CalDAVError } from './lib/caldav.js';
 import { ImapError } from './lib/imap.js';
@@ -50,13 +56,36 @@ function hostNames() {
 
 export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'data'), publicDir = path.join(ROOT, 'public'), log = console } = {}) {
   const stores = createStores(dataDir);
-  const services = createServices(stores);
+  const bridge = createBridge();
+  const apps = createApps({ stores, bridge });
+  const services = createServices(stores, { bridge, apps });
   const todos = createTodos(stores.todos, () => stores.config.data.timezone);
   const sessions = new Sessions(stores.sessions);
   const limiter = new RateLimiter();
   const listeners = new Set();
   const changed = (what) => listeners.forEach((fn) => fn(what));
   const ctx = { stores, services, todos, changed };
+  const actions = createActions(ctx);
+  ctx.actions = actions;
+  const plugins = createPlugins(ctx);
+  services.plugins = plugins;
+
+  // Was passiert, wenn du einen Vorschlag antippst
+  actions.register('whatsapp', (a, text) => services.whatsapp.send({ chatId: a.target.chatId, phone: a.target.phone, name: a.to, text }));
+  actions.register('mail', async (a, text) => {
+    if (!services.mail.canSend()) {
+      const r = await services.mail.draft({ to: a.target.to, subject: a.target.subject, body: text });
+      return { status: 'entwurf', hint: r.hint };
+    }
+    const r = await services.mail.compose({ to: a.target.to, subject: a.target.subject, body: text, send: true });
+    return r.sent ? { status: 'gesendet' } : { status: 'geoeffnet', hint: 'Die Mail ist in der Mail-App geöffnet – dort auf Senden klicken.' };
+  });
+  actions.register('confirm', async (a) => {
+    const result = await runTool(a.target.tool, a.target.args, { ...ctx, purpose: 'action', source: 'agent' });
+    return { status: 'erledigt', result };
+  });
+  plugins.registerActions(actions);
+
   const chat = createChat(ctx);
   const planner = createPlanner(ctx);
   const code = setupCode();
@@ -71,6 +100,11 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
       return null;
     }
   }
+
+  const appAuthorized = (req) => {
+    const key = appKey();
+    return Boolean(isLoopback(req) && key && safeEqual(String(req.headers['x-assistent-app'] || ''), key));
+  };
 
   if (!stores.secrets.data.connectorToken) {
     stores.secrets.update((s) => {
@@ -117,9 +151,18 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
     needsCode: !stores.secrets.data.passwordHash && !isLoopback(req),
     loggedIn: loggedIn(req),
     setupDone: stores.config.data.setupDone,
+    mac: bridge.connected(),
     // Nur das Datum – damit die Mac-App melden kann, dass der Tagesplan fertig ist
     planDate: stores.state.data.lastPlanDate || null,
   }), { auth: 'none' });
+
+  // ---------- Mac-App (nur die App auf diesem Rechner, mit ihrem Schlüssel) ----------
+
+  r('GET', '/api/intern/bridge/next', (req, res) => bridge.poll(req, res), { auth: 'app' });
+  r('POST', '/api/intern/bridge/hello', (req, res, { body }) => bridge.hello(body), { auth: 'app' });
+  r('POST', '/api/intern/bridge/result', (req, res, { body }) => bridge.result(body), { auth: 'app', bodyLimit: 16 * 1024 * 1024 });
+  r('POST', '/api/intern/bridge/event', (req, res, { body }) => bridge.event(body), { auth: 'app' });
+  r('POST', '/api/intern/tool', (req, res, { body }) => handleAppleToolCall(body), { auth: 'app' });
 
   r('GET', '/api/app-login', (req, res, { query }) => {
     const key = appKey();
@@ -179,44 +222,154 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
 
   // ---------- Dashboard ----------
 
+  const CORE_WIDGETS = [
+    { id: 'termine', title: 'Termine', app: 'kalender', icon: 'calendar', color: 'sky' },
+    { id: 'todos', title: 'To-dos', app: 'todos', icon: 'check', color: 'orange' },
+    { id: 'whatsapp', title: 'WhatsApp', app: 'whatsapp', icon: 'chat', color: 'green' },
+    { id: 'mail', title: 'Mail', app: 'mail', icon: 'mail', color: 'sky' },
+    { id: 'wetter', title: 'Wetter', app: 'wetter', icon: 'weather', color: 'amber' },
+    { id: 'erinnerungen', title: 'Erinnerungen', app: 'erinnerungen', icon: 'bell', color: 'orange', defaultOff: true },
+  ];
+
+  function widgetLayout() {
+    const all = [...CORE_WIDGETS, ...plugins.widgets()];
+    const saved = Array.isArray(stores.config.data.widgets) ? stores.config.data.widgets : [];
+    const order = saved.map((w) => w.id).filter((id, i, a) => all.some((x) => x.id === id) && a.indexOf(id) === i);
+    const ids = [...order, ...all.filter((x) => !order.includes(x.id)).map((x) => x.id)];
+    return ids.map((id) => {
+      const w = all.find((x) => x.id === id);
+      const sv = saved.find((x) => x.id === id);
+      return { ...w, on: sv ? sv.on !== false : !w.defaultOff };
+    });
+  }
+
+  // Ein Widget laden – ohne macOS-Fenster: Was noch nicht erlaubt ist, zeigt einen „Erlauben“-Knopf.
+  async function section(fn) {
+    try {
+      return { state: 'ok', data: await withRun({ purpose: 'dashboard', emit: null }, fn) };
+    } catch (err) {
+      if (err instanceof AppError) return { state: { unknown: 'ask', denied: 'denied', off: 'off', offline: 'offline', notInstalled: 'notInstalled', unavailable: 'unavailable' }[err.code] || 'error', error: err.message };
+      if (err instanceof BridgeError && err.code === 'offline') return { state: 'offline', error: err.message };
+      if (err instanceof ServiceError && err.status === 409) return { state: 'setup', error: err.message };
+      return { state: 'error', error: err.message };
+    }
+  }
+
+  const WIDGET_LOADERS = {
+    termine: () => section(async () => {
+      if (!apps.isOn('kalender')) throw new AppError('Kalender ist ausgeschaltet.', 'off');
+      const today = todayIso(services.tz());
+      const tomorrow = addDaysIso(today, 1);
+      const evs = await services.calendar.events(today, tomorrow);
+      return {
+        today: evs.filter((e) => (e.allDay ? e.start <= today && e.end >= today : e.start.slice(0, 10) <= today && e.end.slice(0, 10) >= today)),
+        tomorrow: evs.filter((e) => (e.allDay ? e.start <= tomorrow && e.end >= tomorrow : e.start.slice(0, 10) === tomorrow)),
+        provider: services.calendar.provider(),
+      };
+    }),
+    whatsapp: () => section(async () => {
+      if (!apps.isOn('whatsapp')) throw new AppError('WhatsApp ist ausgeschaltet.', 'off');
+      if (!bridge.connected()) throw new AppError('Nur in der Mac-App.', 'offline');
+      return { chats: await services.whatsapp.chats({ limit: 6 }) };
+    }),
+    mail: () => section(async () => {
+      if (!apps.isOn('mail')) throw new AppError('Mail ist ausgeschaltet.', 'off');
+      const m = await services.mail.list({ unreadOnly: true, limit: 6 });
+      return { ...m, provider: services.mail.provider() };
+    }),
+    wetter: () => section(async () => {
+      if (!apps.isOn('wetter')) throw new AppError('Wetter ist ausgeschaltet.', 'off');
+      return services.weather.get();
+    }),
+    erinnerungen: () => section(async () => {
+      if (!apps.isOn('erinnerungen')) throw new AppError('Erinnerungen sind ausgeschaltet.', 'off');
+      if (!bridge.connected()) throw new AppError('Nur in der Mac-App.', 'offline');
+      const today = todayIso(services.tz());
+      const list = await services.reminders.list();
+      return { reminders: list.filter((r) => !r.due || r.due <= addDaysIso(today, 1)).slice(0, 8), total: list.length };
+    }),
+  };
+
   r('GET', '/api/dashboard', async () => {
     const tz = services.tz();
     const now = nowWall(tz);
     const today = now.date;
-    const tomorrow = addDaysIso(today, 1);
-    const out = {
+    const b = brainStatus(ctx);
+    return {
       now: { date: today, time: now.time, weekday: WEEKDAYS[new Date(Date.UTC(now.y, now.m - 1, now.d)).getUTCDay()], timezone: tz },
       connections: services.status(),
+      mac: bridge.connected(),
+      brain: { active: b.active, mode: b.mode, appleReason: b.apple.reason },
       briefing: stores.state.data.briefing?.date === today ? stores.state.data.briefing : null,
       plan: { running: planner.isRunning(), lastError: stores.state.data.plan.date === today ? stores.state.data.plan.lastError : null, doneToday: stores.state.data.lastPlanDate === today, planTime: stores.config.data.planTime },
       todos: todos.list({ status: 'alle' }).filter((t) => !t.done || (t.doneAt && todayIso(tz, t.doneAt) === today)),
       doneCount: todos.list({ status: 'erledigt' }).length,
+      widgets: widgetLayout(),
     };
-    const jobs = [];
-    if (services.calendar.enabled()) {
-      jobs.push(services.calendar.events(today, tomorrow).then((evs) => {
-        out.events = { today: evs.filter((e) => (e.allDay ? e.start <= today && e.end >= today : e.start.slice(0, 10) <= today && e.end.slice(0, 10) >= today)), tomorrow: evs.filter((e) => (e.allDay ? e.start <= tomorrow && e.end >= tomorrow : e.start.slice(0, 10) === tomorrow)) };
-      }).catch((err) => {
-        out.eventsError = err.message;
-      }));
-    }
-    if (services.mail.enabled()) {
-      jobs.push(services.mail.list({ unreadOnly: true, limit: 8 }).then((m) => {
-        out.mail = m;
-      }).catch((err) => {
-        out.mailError = err.message;
-      }));
-    }
-    if (services.weather.enabled()) {
-      jobs.push(services.weather.get().then((w) => {
-        out.weather = w;
-      }).catch((err) => {
-        out.weatherError = err.message;
-      }));
-    }
-    await Promise.all(jobs);
-    return out;
   });
+
+  r('GET', '/api/widget/:id', async (req, res, { params }) => {
+    const id = params.id;
+    if (id.startsWith('plugin:')) return section(() => plugins.widgetData(id.slice(7)));
+    const load = WIDGET_LOADERS[id];
+    if (!load) throw new HttpError(404, 'Dieses Widget gibt es nicht.');
+    return load();
+  });
+
+  r('GET', '/api/widgets', () => ({ widgets: widgetLayout() }));
+  r('PUT', '/api/widgets', (req, res, { body }) => {
+    if (!Array.isArray(body.widgets)) throw new HttpError(400, 'Bitte eine Liste der Widgets schicken.');
+    stores.config.update((c) => {
+      c.widgets = body.widgets.slice(0, 40).map((w) => ({ id: String(w.id).slice(0, 60), on: w.on !== false }));
+    });
+    return { widgets: widgetLayout() };
+  });
+
+  // ---------- Apps, Plugins, Gehirn, Karten ----------
+
+  r('GET', '/api/apps', async () => ({ apps: await apps.list(), mac: bridge.connected(), status: services.status() }));
+  r('PUT', '/api/apps/:id', (req, res, { params, body }) => {
+    const options = apps.set(params.id, body);
+    services.calendar.reset();
+    services.mail.reset();
+    changed('apps');
+    return { options };
+  });
+  r('POST', '/api/apps/:id/allow', async (req, res, { params }) => {
+    const r1 = await apps.request(params.id);
+    services.calendar.reset();
+    changed('apps');
+    return r1;
+  });
+
+  r('GET', '/api/plugins', () => ({ plugins: plugins.list(), mac: bridge.connected() }));
+  r('PUT', '/api/plugins/:id', (req, res, { params, body }) => {
+    const plugin = plugins.set(params.id, Boolean(body.enabled));
+    changed('plugins');
+    return { plugin };
+  });
+  r('POST', '/api/plugins/:id/control', (req, res, { params, body }) => withRun({ purpose: 'user', emit: null }, () => plugins.control(params.id, String(body.command || ''), body)));
+
+  r('GET', '/api/brain', () => ({ ...brainStatus(ctx), reasons: APPLE_REASONS, models: MODELS, hasKey: Boolean(stores.secrets.data.claudeApiKey) }));
+  r('PUT', '/api/brain', (req, res, { body }) => {
+    if (!['auto', 'apple', 'claude'].includes(body.mode)) throw new HttpError(400, 'Unbekannte Auswahl.');
+    stores.config.update((c) => {
+      c.brain = { ...(c.brain || {}), mode: body.mode };
+    });
+    return brainStatus(ctx);
+  });
+
+  r('GET', '/api/actions/:id', (req, res, { params }) => {
+    const a = actions.get(params.id);
+    if (!a) throw new HttpError(404, 'Diese Karte gibt es nicht mehr.');
+    return { action: a };
+  });
+  r('POST', '/api/actions/:id', async (req, res, { params, body }) => {
+    const action = await actions.run(params.id, { choice: Number.isInteger(body.choice) ? body.choice : undefined, text: body.text });
+    if (action.kind === 'confirm' || action.kind === 'shortcut') changed('todos');
+    return { action };
+  });
+  r('POST', '/api/actions/:id/cancel', (req, res, { params }) => ({ action: actions.cancel(params.id) }));
 
   // ---------- To-dos ----------
 
@@ -231,23 +384,32 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
     const from = query.get('from') || todayIso(services.tz());
     return { events: await services.calendar.events(from, query.get('to') || from) };
   });
-  r('GET', '/api/calendars', async () => ({ calendars: await services.calendar.calendars({ fresh: true }), defaultCalendar: stores.config.data.icloud.defaultCalendar }));
+  const calendarPrefs = () => (services.calendar.provider() === 'mac' ? stores.config.data.apps.kalender : { selected: stores.config.data.icloud.selectedCalendars, defaultCalendar: stores.config.data.icloud.defaultCalendar });
+  r('GET', '/api/calendars', async () => withRun({ purpose: 'user', emit: null }, async () => ({ calendars: await services.calendar.calendars({ fresh: true }), defaultCalendar: calendarPrefs().defaultCalendar || null, provider: services.calendar.provider() })));
   r('PUT', '/api/calendars', async (req, res, { body }) => {
-    const cals = await services.calendar.calendars();
+    const cals = await withRun({ purpose: 'user', emit: null }, () => services.calendar.calendars({ fresh: true }));
     const ids = cals.map((c) => c.id);
     const selected = Array.isArray(body.selected) ? body.selected.filter((id) => ids.includes(id)) : null;
     const def = ids.includes(body.defaultCalendar) ? body.defaultCalendar : null;
+    const sel = selected && selected.length < ids.length ? selected : null;
+    const mac = services.calendar.provider() === 'mac';
     stores.config.update((c) => {
-      c.icloud.selectedCalendars = selected && selected.length < ids.length ? selected : null;
-      c.icloud.defaultCalendar = def;
+      if (mac) {
+        c.apps.kalender = { ...(c.apps.kalender || {}), selected: sel, defaultCalendar: def };
+      } else {
+        c.icloud.selectedCalendars = sel;
+        c.icloud.defaultCalendar = def;
+      }
     });
     services.calendar.reset();
-    return { calendars: await services.calendar.calendars() };
+    return { calendars: await withRun({ purpose: 'user', emit: null }, () => services.calendar.calendars()) };
   });
 
-  r('GET', '/api/mail', async (req, res, { query }) => services.mail.list({ unreadOnly: query.get('unread') === '1', limit: Number(query.get('limit') || 15) }));
-  r('GET', '/api/mail/:id', async (req, res, { params }) => ({ mail: await services.mail.read(params.id) }));
-  r('POST', '/api/mail/:id/mark', async (req, res, { params, body }) => services.mail.mark(params.id, { read: body.read, flagged: body.flagged }));
+  const asUser = (fn) => withRun({ purpose: 'user', emit: null }, fn);
+  r('GET', '/api/mail', async (req, res, { query }) => asUser(() => services.mail.list({ unreadOnly: query.get('unread') === '1', limit: Number(query.get('limit') || 15) })));
+  r('GET', '/api/mail/:id', async (req, res, { params }) => ({ mail: await asUser(() => services.mail.read(params.id)) }));
+  r('POST', '/api/mail/:id/mark', async (req, res, { params, body }) => asUser(() => services.mail.mark(params.id, { read: body.read, flagged: body.flagged })));
+  r('GET', '/api/whatsapp/:chat', async (req, res, { params }) => asUser(() => services.whatsapp.messages(params.chat, 25)));
 
   // ---------- Verbindungen ----------
 
@@ -439,12 +601,16 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
 
   // ---------- Chat ----------
 
-  r('GET', '/api/chat', () => ({ log: chat.log(), available: services.claude.enabled(), busy: chat.busy() }));
+  r('GET', '/api/chat', () => {
+    const log = chat.log();
+    const ids = log.flatMap((m) => (m.parts || []).map((p) => p.result?.karte).filter(Boolean));
+    const b = brainStatus(ctx);
+    return { log, available: true, busy: chat.busy(), brain: { active: b.active, mode: b.mode, appleReason: b.apple.reason }, actions: actions.many(ids) };
+  });
   r('POST', '/api/chat', async (req, res, { body }) => {
     const voice = Boolean(body.voice);
     if (!String(req.headers.accept || '').includes('application/x-ndjson')) return chat.send(body.message, body.display, { voice });
-    // Live-Übertragung: eine JSON-Zeile pro Ereignis (Text-Stücke, Werkzeug-Start/-Ende, Ende)
-    if (!services.claude.enabled()) throw new HttpError(409, 'Für den Chat brauche ich einen Claude-API-Schlüssel. Du kannst ihn unter „Verbindungen“ eintragen.');
+    // Live-Übertragung: eine JSON-Zeile pro Ereignis (Text-Stücke, Werkzeug-Start/-Ende, Erlaubnis, Ende)
     if (chat.busy()) throw new HttpError(409, 'Ich antworte gerade noch auf deine letzte Nachricht.');
     res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
     const send = (evt) => {
@@ -453,7 +619,7 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
     const keepAlive = setInterval(() => send({ type: 'ping' }), 15000);
     try {
       const result = await chat.send(body.message, body.display, { voice, stream: true, onEvent: send });
-      send({ type: 'done', reply: result.reply, tools: result.tools });
+      send({ type: 'done', reply: result.reply, tools: result.tools, brain: result.brain });
     } catch (err) {
       send({ type: 'error', error: err.message });
     } finally {
@@ -478,7 +644,9 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
 
   function errorStatus(err) {
     if (err instanceof HttpError) return err.status;
-    if (err instanceof TodoError || err instanceof ServiceError || err instanceof ToolInputError) return err.status || 400;
+    if (err instanceof TodoError || err instanceof ServiceError || err instanceof ToolInputError || err instanceof MacError || err instanceof ActionError || err instanceof PluginError) return err.status || 400;
+    if (err instanceof AppError || err instanceof BridgeError) return err.status || 409;
+    if (err instanceof JxaError) return err.code === 'denied' ? 403 : 502;
     if (err instanceof ClaudeError) return err.status === 401 || err.status === 409 || err.status === 400 ? (err.status === 401 ? 400 : err.status) : 502;
     if (err instanceof CalDAVError) return err.status === 401 || err.status === 403 ? 400 : 502;
     if (err instanceof ImapError) return err.code === 'AUTHENTICATIONFAILED' ? 400 : 502;
@@ -582,7 +750,8 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
           }
         }
         if (route.opts.auth === 'session' && !loggedIn(req)) throw new HttpError(401, 'Bitte zuerst anmelden.');
-        const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await readJson(req) : {};
+        if (route.opts.auth === 'app' && !appAuthorized(req)) throw new HttpError(403, 'Nur für die Mac-App.');
+        const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await readJson(req, route.opts.bodyLimit) : {};
         const result = await route.handler(req, res, { params, query: url.searchParams, body });
         if (!res.headersSent) sendJson(res, 200, result ?? { ok: true });
         return;
@@ -607,6 +776,9 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
     todos,
     planner,
     chat,
+    bridge,
+    actions,
+    plugins,
     setupCode: code,
     port: Number(process.env.PORT || 3000),
     server: null,
@@ -647,6 +819,7 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
     },
     async close() {
       planner.stop();
+      bridge.close();
       if (app.server) {
         await new Promise((resolve) => {
           app.server.close(() => resolve());

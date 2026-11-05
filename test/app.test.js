@@ -149,7 +149,10 @@ test('Verbindungen: iCloud, Wetter, Claude', async () => {
   r = await api('PUT', '/api/connections/claude', { apiKey: API_KEY, model: 'claude-haiku-5-5' });
   assert.equal(r.status, 200);
   r = await api('GET', '/api/connections');
-  assert.deepEqual(Object.fromEntries(Object.entries(r.data.status).map(([k, v]) => [k, v.connected ?? v.ready])), { calendar: true, mail: true, weather: true, claude: true, connector: true });
+  const st = r.data.status;
+  assert.deepEqual({ calendar: st.calendar.connected, mail: st.mail.connected, weather: st.weather.connected, claude: st.claude.connected, connector: st.connector.ready }, { calendar: true, mail: true, weather: true, claude: true, connector: true });
+  assert.equal(st.calendar.provider, 'icloud', 'ohne Mac-App über iCloud');
+  assert.equal(st.mac.connected, false);
   assert.equal(JSON.stringify(r.data).includes(APP_PW), false, 'Passwort wird nie zurückgeschickt');
   assert.equal(JSON.stringify(r.data).includes(API_KEY), false, 'Schlüssel wird nie zurückgeschickt');
   r = await api('POST', '/api/setup/finish');
@@ -157,16 +160,23 @@ test('Verbindungen: iCloud, Wetter, Claude', async () => {
 });
 
 test('Dashboard zeigt Termine, Mails, Wetter', async () => {
-  const r = await api('GET', '/api/dashboard');
+  let r = await api('GET', '/api/dashboard');
   assert.equal(r.status, 200, JSON.stringify(r.data));
-  const titles = r.data.events.today.map((e) => e.title);
-  assert.deepEqual(titles, ['Joggen', 'Zahnarzt']);
-  assert.equal(r.data.events.today[1].start, `${today}T10:00`);
-  assert.deepEqual(r.data.events.tomorrow.map((e) => e.title), ['Feiertag', 'Joggen']);
-  assert.equal(r.data.mail.total, 1);
-  assert.equal(r.data.mail.messages[0].subject, 'Hast du Freitag Zeit?');
-  assert.equal(r.data.weather.current.text, 'Bedeckt');
-  assert.equal(r.data.weather.place, 'Tübingen');
+  assert.deepEqual(r.data.widgets.filter((w) => w.on).map((w) => w.id), ['termine', 'todos', 'whatsapp', 'mail', 'wetter']);
+  r = await api('GET', '/api/widget/termine');
+  assert.equal(r.data.state, 'ok', JSON.stringify(r.data));
+  const events = r.data.data;
+  assert.deepEqual(events.today.map((e) => e.title), ['Joggen', 'Zahnarzt']);
+  assert.equal(events.today[1].start, `${today}T10:00`);
+  assert.deepEqual(events.tomorrow.map((e) => e.title), ['Feiertag', 'Joggen']);
+  r = await api('GET', '/api/widget/mail');
+  assert.equal(r.data.data.total, 1);
+  assert.equal(r.data.data.messages[0].subject, 'Hast du Freitag Zeit?');
+  r = await api('GET', '/api/widget/wetter');
+  assert.equal(r.data.data.current.text, 'Bedeckt');
+  assert.equal(r.data.data.place, 'Tübingen');
+  r = await api('GET', '/api/widget/whatsapp');
+  assert.equal(r.data.state, 'offline', 'WhatsApp nur in der Mac-App');
 });
 
 test('Kalender: Termin eintragen, ändern, löschen', async () => {
@@ -248,7 +258,7 @@ test('Chat mit Claude benutzt Werkzeuge', async () => {
   assert.equal(first.body.model, 'claude-haiku-5-5');
   assert.deepEqual(first.body.cache_control, { type: 'ephemeral' });
   assert.ok(first.body.tools.some((t) => t.name === 'mail_create_draft'));
-  assert.match(first.body.system, /verschickst niemals Mails/);
+  assert.match(first.body.system, /verschickst du nie direkt/);
   assert.equal('temperature' in first.body, false);
   const second = claude.requests[claude.requests.length - 1];
   const results = second.body.messages[second.body.messages.length - 1].content;

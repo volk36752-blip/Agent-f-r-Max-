@@ -1,4 +1,5 @@
-// Die angebundenen Apps: iCloud-Kalender, iCloud-Mail, Wetter, Claude.
+// Die angebundenen Apps. Kalender und Mail kommen am liebsten direkt vom Mac (ohne Passwort);
+// iCloud mit app-spezifischem Passwort bleibt als Weg für den Browser oder einen Server.
 
 import { randomUUID } from 'node:crypto';
 import { CalDAVClient } from './lib/caldav.js';
@@ -10,6 +11,7 @@ import {
 import { parseMessage, composeMessage } from './lib/mime.js';
 import * as weatherApi from './lib/weather.js';
 import { dayStartMs, addDaysIso, localDateTimeToMs, msToLocalIso, parseIsoDate } from './lib/tz.js';
+import { createMacCalendar, createMacReminders, createMacContacts, createMacMail, createWhatsApp } from './mac.js';
 
 export class ServiceError extends Error {
   constructor(message, status = 400) {
@@ -78,7 +80,7 @@ function parseMailId(id) {
 
 const formatAddr = (a) => (a ? (a.name ? `${a.name} <${a.address}>` : a.address) : '');
 
-export function createServices(stores) {
+export function createServices(stores, { bridge, apps } = {}) {
   const config = () => stores.config.data;
   const secrets = () => stores.secrets.data;
   const tz = () => config().timezone;
@@ -135,7 +137,7 @@ export function createServices(stores) {
   }
 
   async function findCalendar(ref) {
-    const cals = await calendar.calendars();
+    const cals = await icloudCalendar.calendars();
     if (ref) {
       const r = String(ref).toLowerCase();
       const hit = cals.find((c) => c.id === ref || c.name.toLowerCase() === r);
@@ -172,7 +174,7 @@ export function createServices(stores) {
     return { allDay: false, startMs, endMs };
   }
 
-  const calendar = {
+  const icloudCalendar = {
     enabled: () => Boolean(config().icloud.calendarEnabled && config().icloud.appleId && secrets().icloudAppPassword),
 
     async test(appleId, appPassword) {
@@ -181,7 +183,7 @@ export function createServices(stores) {
     },
 
     async calendars({ fresh = false } = {}) {
-      if (!calendar.enabled()) throw new ServiceError('Der Kalender ist noch nicht verbunden.', 409);
+      if (!icloudCalendar.enabled()) throw new ServiceError('Der Kalender ist noch nicht verbunden.', 409);
       let cals = fresh ? undefined : calCache.get('list');
       if (!cals) cals = calCache.set('list', await calendarClient().listCalendars());
       return cals.map(publicCalendar);
@@ -197,7 +199,7 @@ export function createServices(stores) {
       const zone = tz();
       const startMs = dayStartMs(fromDate, zone);
       const endMs = dayStartMs(addDaysIso(toDate, 1), zone);
-      const cals = (await calendar.calendars()).filter((c) => c.selected);
+      const cals = (await icloudCalendar.calendars()).filter((c) => c.selected);
       const client = calendarClient();
       const errors = [];
       const lists = await Promise.all(cals.map(async (cal) => {
@@ -236,7 +238,7 @@ export function createServices(stores) {
       const ref = decodeId(id);
       if (!ref?.u) throw new ServiceError('Unbekannte Termin-ID.');
       const client = calendarClient();
-      if (eventCalendarReadOnly(ref.u, await calendar.calendars())) throw new ServiceError('Dieser Kalender kann nur gelesen werden.');
+      if (eventCalendarReadOnly(ref.u, await icloudCalendar.calendars())) throw new ServiceError('Dieser Kalender kann nur gelesen werden.');
       const { ics, etag } = await client.get(ref.u);
       const root = parseICS(ics);
       if (isRecurringResource(root)) throw new ServiceError('Wiederkehrende Termine kann ich noch nicht ändern. Bitte direkt in der Kalender-App ändern.');
@@ -277,7 +279,7 @@ export function createServices(stores) {
       const ref = decodeId(id);
       if (!ref?.u) throw new ServiceError('Unbekannte Termin-ID.');
       const client = calendarClient();
-      if (eventCalendarReadOnly(ref.u, await calendar.calendars())) throw new ServiceError('Dieser Kalender kann nur gelesen werden.');
+      if (eventCalendarReadOnly(ref.u, await icloudCalendar.calendars())) throw new ServiceError('Dieser Kalender kann nur gelesen werden.');
       const { ics, etag } = await client.get(ref.u);
       const root = parseICS(ics);
       if (isRecurringResource(root)) throw new ServiceError('Wiederkehrende Termine kann ich noch nicht löschen. Bitte direkt in der Kalender-App löschen.');
@@ -354,7 +356,7 @@ export function createServices(stores) {
     };
   }
 
-  const mail = {
+  const icloudMail = {
     enabled: () => Boolean(config().icloud.mailEnabled && config().icloud.mailAddress && secrets().icloudAppPassword),
 
     // Probiert die volle Adresse und den Namensteil (Apple erlaubt beides je nach Konto).
@@ -523,16 +525,79 @@ export function createServices(stores) {
     model: () => config().claude.model,
   };
 
+  // ---------------- Direkt vom Mac ----------------
+
+  const mac = { bridge, apps, stores, tz };
+  const macCalendar = createMacCalendar(mac);
+  const macMail = createMacMail(mac);
+  const reminders = createMacReminders(mac);
+  const contacts = createMacContacts(mac);
+  const whatsapp = createWhatsApp(mac);
+
+  const need = (provider, message) => {
+    if (!provider) throw new ServiceError(message, 409);
+    return provider;
+  };
+
+  const calProvider = () => (macCalendar.enabled() ? macCalendar : icloudCalendar.enabled() ? icloudCalendar : null);
+  const CAL_OFF = 'Der Kalender ist noch nicht verbunden. In der Mac-App geht das ohne Passwort unter Einstellungen → Apps.';
+  const calendar = {
+    provider: () => (macCalendar.enabled() ? 'mac' : icloudCalendar.enabled() ? 'icloud' : null),
+    enabled: () => Boolean(calProvider()),
+    calendars: (opts) => need(calProvider(), CAL_OFF).calendars(opts),
+    events: (from, to) => need(calProvider(), CAL_OFF).events(from, to),
+    create: (input) => need(calProvider(), CAL_OFF).create(input),
+    update: (input) => need(calProvider(), CAL_OFF).update(input),
+    remove: (id) => need(calProvider(), CAL_OFF).remove(id),
+    test: (appleId, appPassword) => icloudCalendar.test(appleId, appPassword),
+    reset() {
+      macCalendar.reset();
+      icloudCalendar.reset();
+    },
+  };
+
+  const mailProvider = () => (macMail.enabled() ? macMail : icloudMail.enabled() ? icloudMail : null);
+  const MAIL_OFF = 'Mail ist noch nicht verbunden. In der Mac-App geht das ohne Passwort unter Einstellungen → Apps.';
+  const mail = {
+    provider: () => (macMail.enabled() ? 'mac' : icloudMail.enabled() ? 'icloud' : null),
+    enabled: () => Boolean(mailProvider()),
+    canSend: () => macMail.enabled(),
+    list: (opts) => need(mailProvider(), MAIL_OFF).list(opts),
+    read: (id, opts) => need(mailProvider(), MAIL_OFF).read(id, opts),
+    search: (opts) => need(mailProvider(), MAIL_OFF).search(opts),
+    mark: (id, opts) => need(mailProvider(), MAIL_OFF).mark(id, opts),
+    move: (id, to) => need(mailProvider(), MAIL_OFF).move(id, to),
+    draft: (opts) => need(mailProvider(), MAIL_OFF).draft(opts),
+    folders: () => need(mailProvider(), MAIL_OFF).folders(),
+    async replyInfo(id) {
+      const p = need(mailProvider(), MAIL_OFF);
+      if (p.replyInfo) return p.replyInfo(id);
+      const m = await p.read(id);
+      return { to: m.from, subject: /^(re|aw):/i.test(m.subject) ? m.subject : `Re: ${m.subject}`, original: m };
+    },
+    compose: (opts) => need(macMail.enabled() ? macMail : null, 'Mails senden geht nur über die Mail-App in der Mac-App.').compose(opts),
+    test: (address, appPassword) => icloudMail.test(address, appPassword),
+    reset() {
+      macMail.reset();
+      icloudMail.reset();
+    },
+  };
+
   function status() {
     const c = config();
     return {
-      calendar: { connected: calendar.enabled(), account: c.icloud.calendarEnabled ? c.icloud.appleId : '' },
-      mail: { connected: mail.enabled(), address: c.icloud.mailEnabled ? c.icloud.mailAddress : '' },
+      mac: { connected: Boolean(bridge?.connected()) },
+      calendar: { connected: calendar.enabled(), provider: calendar.provider(), account: c.icloud.calendarEnabled ? c.icloud.appleId : '' },
+      mail: { connected: mail.enabled(), provider: mail.provider(), address: c.icloud.mailEnabled ? c.icloud.mailAddress : '' },
+      whatsapp: { connected: whatsapp.enabled() },
+      reminders: { connected: reminders.enabled() },
+      contacts: { connected: contacts.enabled() },
       weather: { connected: weather.enabled(), place: c.weather.enabled ? [c.weather.name, c.weather.region].filter(Boolean).join(', ') : '' },
       claude: { connected: claude.enabled(), model: c.claude.model },
+      icloud: { calendar: icloudCalendar.enabled(), mail: icloudMail.enabled() },
       connector: { ready: Boolean(secrets().connectorToken) },
     };
   }
 
-  return { calendar, mail, weather, claude, status, tz };
+  return { calendar, mail, weather, claude, whatsapp, reminders, contacts, bridge, apps, status, tz };
 }
