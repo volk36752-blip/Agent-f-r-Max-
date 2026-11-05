@@ -45,6 +45,12 @@ export const ICONS = {
   schnee: svg('<path d="M7 15.5h10.5a4 4 0 0 0 0-8 6 6 0 0 0-11.3 1.8A3.2 3.2 0 0 0 7 15.5z"/><path d="M8 19.5h.01M12 21h.01M16 19.5h.01" stroke-width="2.6"/>'),
   gewitter: svg('<path d="M7 15.5h10.5a4 4 0 0 0 0-8 6 6 0 0 0-11.3 1.8A3.2 3.2 0 0 0 7 15.5z"/><path d="M12.5 15.5L10.5 19h3l-2 3"/>'),
   nebel: svg('<path d="M4 9h16M3 13h18M5 17h14"/>'),
+  bell: svg('<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2H4.5z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/>'),
+  pin: svg('<path d="M12 21s-6.5-6.2-6.5-11a6.5 6.5 0 0 1 13 0c0 4.8-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/>'),
+  dock: svg('<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M6.5 16.5h11" stroke-width="2.4"/>'),
+  sunrise: svg('<path d="M5 18a7 7 0 0 1 14 0"/><path d="M2.5 18h19M12 4.5v4M9.5 7l2.5-2.5L14.5 7M4.6 11.6l1.4 1M19.4 11.6l-1.4 1"/>'),
+  shield: svg('<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.4-7.5 9.5-4.3-1.1-7.5-4.9-7.5-9.5V6z"/><path d="M8.8 12.2l2.2 2.2 4.4-4.6" stroke-width="2.2"/>'),
+  folder: svg('<path d="M3 7.5a2 2 0 0 1 2-2h4.2l2 2.2H19a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'),
 };
 
 export function icon(name) {

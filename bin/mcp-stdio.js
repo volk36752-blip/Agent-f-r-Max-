@@ -21,7 +21,7 @@ function token() {
   }
 }
 
-const OFFLINE = 'Der Assistent läuft gerade nicht. Starte ihn auf dem Mac (Start.command) und versuch es dann nochmal.';
+const OFFLINE = 'Der Assistent läuft gerade nicht. Öffne auf dem Mac die App „Assistent“ und versuch es dann nochmal.';
 
 function localAnswer(msg) {
   // Damit Claude die Verbindung auch dann anzeigt, wenn der Assistent noch nicht läuft

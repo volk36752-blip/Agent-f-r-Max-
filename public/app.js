@@ -3,6 +3,7 @@
 import { h, api, go } from './js/ui.js';
 import { renderDashboard, stopDashboard } from './js/dashboard.js';
 import { renderSetup, renderSingleStep, renderConnections, renderSettings } from './js/setup.js';
+import { renderPermissionsPage } from './js/permissions.js';
 
 const root = document.getElementById('app');
 let status = null;
@@ -19,7 +20,8 @@ async function route() {
     root.replaceChildren(h('main', { class: 'auth' }, h('div', { class: 'auth-card' }, h('h1', {}, 'Keine Verbindung'), h('p', {}, err.message), h('button', { class: 'btn', type: 'button', onclick: () => route() }, 'Nochmal versuchen'))));
     return;
   }
-  if (status.needsPassword) return renderCreatePassword();
+  // In der Mac-App ist man ohne Passwort angemeldet
+  if (status.needsPassword && !status.loggedIn) return renderCreatePassword();
   if (!status.loggedIn) return renderLogin();
   const path = currentPath();
   if (!status.setupDone && !path.startsWith('/einrichtung')) return go('/einrichtung/willkommen');
@@ -27,6 +29,7 @@ async function route() {
   if (path.startsWith('/verbindungen/')) return renderSingleStep(path.split('/')[2]);
   if (path === '/verbindungen') return renderConnections();
   if (path === '/einstellungen') return renderSettings();
+  if (path === '/berechtigungen') return renderPermissionsPage();
   return renderDashboard();
 }
 

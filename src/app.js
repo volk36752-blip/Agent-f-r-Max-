@@ -1,5 +1,6 @@
 // Der Webserver: Dashboard, API für die Oberfläche und der Connector-Zugang für Claude.
 
+import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -60,6 +61,17 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
   const planner = createPlanner(ctx);
   const code = setupCode();
 
+  // Die Mac-App legt beim Start einen Schlüssel in den Datenordner. Wer ihn kennt (nur die App
+  // auf diesem Rechner), wird ohne Passwort angemeldet.
+  function appKey() {
+    try {
+      const key = fs.readFileSync(path.join(dataDir, 'app-schluessel'), 'utf8').trim();
+      return key.length >= 32 ? key : null;
+    } catch {
+      return null;
+    }
+  }
+
   if (!stores.secrets.data.connectorToken) {
     stores.secrets.update((s) => {
       s.connectorToken = randomToken(24);
@@ -101,10 +113,21 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
 
   r('GET', '/api/status', (req) => ({
     needsPassword: !stores.secrets.data.passwordHash,
+    hasPassword: Boolean(stores.secrets.data.passwordHash),
     needsCode: !stores.secrets.data.passwordHash && !isLoopback(req),
     loggedIn: loggedIn(req),
     setupDone: stores.config.data.setupDone,
+    // Nur das Datum – damit die Mac-App melden kann, dass der Tagesplan fertig ist
+    planDate: stores.state.data.lastPlanDate || null,
   }), { auth: 'none' });
+
+  r('GET', '/api/app-login', (req, res, { query }) => {
+    const key = appKey();
+    const given = String(query.get('key') || '');
+    if (isLoopback(req) && key && safeEqual(given, key)) startSession(req, res);
+    res.writeHead(302, { Location: '/', 'Cache-Control': 'no-store' });
+    res.end();
+  }, { auth: 'none' });
 
   r('POST', '/api/setup/password', async (req, res, { body }) => {
     if (stores.secrets.data.passwordHash) throw new HttpError(409, 'Es gibt schon ein Passwort. Bitte anmelden.');
@@ -357,7 +380,11 @@ export function createApp({ dataDir = process.env.DATA_DIR || path.join(ROOT, 'd
       bridgePath: path.join(ROOT, 'bin', 'mcp-stdio.js'),
       desktopConfig: {
         mcpServers: {
-          assistent: { command: 'node', args: [path.join(ROOT, 'bin', 'mcp-stdio.js')] },
+          assistent: {
+            command: process.execPath,
+            args: [path.join(ROOT, 'bin', 'mcp-stdio.js')],
+            env: { DATA_DIR: dataDir, PORT: String(port) },
+          },
         },
       },
       publicHint: process.env.PUBLIC_URL ? `${process.env.PUBLIC_URL.replace(/\/$/, '')}/mcp/${token}` : null,

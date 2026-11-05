@@ -421,3 +421,29 @@ test('Statische Seiten und Sicherheit', async () => {
   });
   assert.equal(status, 421, 'fremder Hostname wird abgelehnt (DNS-Rebinding)');
 });
+
+test('Mac-App: Anmeldung mit App-Schlüssel, Status für Mitteilungen', async () => {
+  const saved = cookieJar;
+  cookieJar = '';
+  // Ohne Schlüssel-Datei: nur Weiterleitung, keine Sitzung
+  let res = await api('GET', '/api/app-login?key=x', null, { raw: true });
+  assert.equal(res.status, 200, 'fetch folgt der Weiterleitung zur Startseite');
+  assert.equal(cookieJar, '');
+  const key = 'a'.repeat(64);
+  fs.writeFileSync(path.join(dataDir, 'app-schluessel'), `${key}\n`, { mode: 0o600 });
+  res = await fetch(`${base}/api/app-login?key=falsch`, { redirect: 'manual' });
+  assert.equal(res.status, 302);
+  assert.equal(res.headers.get('set-cookie'), null, 'falscher Schlüssel gibt keine Sitzung');
+  res = await fetch(`${base}/api/app-login?key=${key}`, { redirect: 'manual' });
+  assert.equal(res.status, 302);
+  assert.equal(res.headers.get('location'), '/');
+  cookieJar = res.headers.get('set-cookie').split(';')[0];
+  let r = await api('GET', '/api/status');
+  assert.equal(r.data.loggedIn, true);
+  assert.equal(r.data.hasPassword, true);
+  assert.equal(r.data.planDate, today, 'Datum des letzten Tagesplans');
+  r = await api('GET', '/api/connector');
+  assert.equal(r.data.desktopConfig.mcpServers.assistent.command, process.execPath);
+  assert.equal(r.data.desktopConfig.mcpServers.assistent.env.DATA_DIR, dataDir);
+  cookieJar = saved;
+});

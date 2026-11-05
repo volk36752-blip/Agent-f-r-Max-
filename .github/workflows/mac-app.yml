@@ -1,0 +1,62 @@
+# Baut bei jeder Änderung die fertige Mac-App und stellt sie als Download bereit:
+# https://github.com/<konto>/assistent-agent/releases/latest/download/Assistent.dmg
+name: Mac-App bauen
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mac-app
+  cancel-in-progress: true
+
+jobs:
+  mac-app:
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      APP_VERSION: 0.2.${{ github.run_number }}
+      APP_BUILD: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Node.js für die App holen
+        run: scripts/node-holen.sh 2>&1 | tee -a protokoll.txt
+
+      - name: Tests
+        run: build/node/node-arm64 --test test/*.test.js 2>&1 | tee -a protokoll.txt
+
+      - name: App bauen
+        run: scripts/mac-app-bauen.sh --paket 2>&1 | tee -a protokoll.txt
+
+      - name: App starten und prüfen
+        run: scripts/mac-app-pruefen.sh 2>&1 | tee -a protokoll.txt
+
+      - name: Disk-Image bauen
+        run: scripts/dmg-bauen.sh 2>&1 | tee -a protokoll.txt
+
+      - name: Als Download veröffentlichen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v$APP_VERSION" build/Assistent.dmg \
+            --target "$GITHUB_SHA" \
+            --title "Assistent für den Mac – $APP_VERSION" \
+            --notes-file mac/download-anleitung.md \
+            --latest 2>&1 | tee -a protokoll.txt
+
+      - name: Prüfbericht ablegen
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete pruefbericht --yes --cleanup-tag >/dev/null 2>&1 || true
+          files="protokoll.txt"
+          [ -f build/vorschau.png ] && files="$files build/vorschau.png"
+          gh release create pruefbericht $files --prerelease --target "$GITHUB_SHA" \
+            --title "Prüfbericht vom letzten Bau (${{ job.status }})" \
+            --notes "Automatisch erzeugt beim Bauen. Zum Installieren bitte die neueste Version „Assistent für den Mac“ nehmen."

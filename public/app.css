@@ -658,6 +658,11 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(4px); }
 .conn-icon svg { width: 26px; height: 26px; color: var(--text-2); display: block; }
 .conn .name { font-weight: 600; }
 .conn-actions { display: flex; gap: 8px; }
+.perm-list { margin: 22px 0 18px; }
+.perm-text { color: var(--text-2); font-size: var(--step--1); line-height: 1.45; margin: 4px 0 6px; max-width: 58ch; }
+.perm-ok svg { width: 14px; height: 14px; display: inline-block; vertical-align: -2px; margin-right: 6px; }
+.page > .lead { font-size: 1.0625rem; color: var(--text-2); margin-top: 12px; max-width: 64ch; }
+.page > .lead + .perm-list { margin-top: 26px; }
 
 .code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.8125rem; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--card-2); border: 1px solid var(--line); border-radius: var(--r-field); padding: 12px 14px; color: var(--text-2); }
 

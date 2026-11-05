@@ -54,6 +54,23 @@ const bridge = {
     return id;
   },
 };
+// Frage an die Mac-App, Antwort kommt als Nachricht mit derselben id zurück
+export function nativeCall(cmd, data = {}, timeoutMs = 120000) {
+  if (!nativeHandler) return Promise.reject(new Error('Das geht nur in der Mac-App.'));
+  return new Promise((resolve, reject) => {
+    let timer = null;
+    const id = bridge.call(cmd, data, (m) => {
+      bridge.handlers.delete(m.id);
+      clearTimeout(timer);
+      resolve(m);
+    });
+    timer = setTimeout(() => {
+      bridge.handlers.delete(id);
+      reject(new Error('Die App antwortet gerade nicht.'));
+    }, timeoutMs);
+  });
+}
+
 let nativeVoices = [];
 if (nativeHandler) {
   window.__assistentNative = {

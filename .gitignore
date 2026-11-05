@@ -3,6 +3,7 @@ data/
 
 node_modules/
 mac/build/
+build/
 .DS_Store
 *.log
 *.tmp

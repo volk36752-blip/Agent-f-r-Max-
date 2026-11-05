@@ -1,13 +1,14 @@
 // Einrichtung, Verbindungen und Einstellungen.
 
 import { h, ICONS, toast, api, go, copy, shell } from './ui.js';
-import { speech, voiceSettings, rankedVoices, germanVoices, ears } from './voice.js';
+import { speech, voiceSettings, rankedVoices, germanVoices, ears, isMacApp } from './voice.js';
+import { permissionList } from './permissions.js';
 
 const root = { replaceChildren: (...n) => document.getElementById('app').replaceChildren(...n) };
 
 // ---------------- Einrichtung ----------------
 
-const STEPS = ['willkommen', 'kalender', 'mail', 'wetter', 'claude', 'claude-app', 'wuensche', 'fertig'];
+const STEPS = ['willkommen', 'berechtigungen', 'kalender', 'mail', 'wetter', 'claude', 'claude-app', 'wuensche', 'fertig'];
 
 async function connections() {
   return api('GET', '/api/connections');
@@ -79,9 +80,39 @@ const STEP_RENDERERS = {
     return stepPage(step, false,
       h('div', { class: 'app-mark' }, h('span', { class: 'orb', 'aria-hidden': 'true', html: ICONS.mic })),
       h('h1', {}, 'Hallo! Ich bin dein Assistent.'),
-      h('p', { class: 'lead' }, 'Ich frage dich jetzt nacheinander, auf welche Apps ich zugreifen darf: Kalender, Mail, Wetter, Claude und was du dir sonst noch wünschst. Jede Frage kannst du überspringen und später unter „Verbindungen“ nachholen.'),
-      h('p', { class: 'lead' }, 'Deine Zugangsdaten bleiben auf deinem Mac im Ordner „data“ und werden nirgendwo hochgeladen.'),
+      h('p', { class: 'lead' }, isMacApp
+        ? 'Ich frage dich jetzt nacheinander, was ich darf: zuerst Mikrofon, Mitteilungen und Standort, dann Kalender, Mail, Wetter und Claude. Jede Frage kannst du überspringen und später nachholen.'
+        : 'Ich frage dich jetzt nacheinander, auf welche Apps ich zugreifen darf: Kalender, Mail, Wetter, Claude und was du dir sonst noch wünschst. Jede Frage kannst du überspringen und später unter „Verbindungen“ nachholen.'),
+      h('p', { class: 'lead' }, 'Deine Zugangsdaten bleiben auf deinem Mac und werden nirgendwo hochgeladen.'),
       actions(h('button', { class: 'btn', type: 'button', onclick: () => nextStep(step) }, 'Los geht’s')));
+  },
+
+  async berechtigungen(step, single) {
+    const perms = await permissionList();
+    if (!perms.hasItems()) {
+      nextStep(step, single);
+      return null;
+    }
+    const primary = h('button', { class: 'btn', type: 'button' }, perms.pending() ? 'Alle erlauben' : 'Weiter');
+    const skipBtn = h('button', { class: 'btn btn-quiet', type: 'button', onclick: () => nextStep(step, single) }, 'Überspringen');
+    primary.addEventListener('click', async () => {
+      if (!perms.pending() || primary.dataset.done) return nextStep(step, single);
+      primary.disabled = true;
+      primary.textContent = 'Frage nach …';
+      await perms.allowAll();
+      primary.disabled = false;
+      primary.dataset.done = '1';
+      primary.textContent = 'Weiter';
+      skipBtn.remove();
+    });
+    return stepPage(step, single,
+      h('div', { class: 'app-mark', html: ICONS.shield }),
+      h('h1', {}, isMacApp ? 'Was darf ich auf deinem Mac?' : 'Was darf ich in diesem Browser?'),
+      h('p', { class: 'lead' }, isMacApp
+        ? 'Für jede Erlaubnis zeigt dir macOS ein kleines Fenster – dort auf „Erlauben“ bzw. „OK“ klicken. Alles kannst du später unter Einstellungen → Berechtigungen ändern.'
+        : 'Dein Browser fragt bei jeder Erlaubnis einmal nach.'),
+      perms.el,
+      actions(primary, skipBtn));
   },
 
   async kalender(step, single) {
@@ -171,10 +202,17 @@ const STEP_RENDERERS = {
         search();
       }
     });
+    const already = c.weather.enabled && !single
+      ? h('div', { class: 'stack-tight' },
+        h('p', { class: 'state on' }, `Schon eingestellt: ${c.weather.name}${c.weather.region ? ` (${c.weather.region})` : ''}`),
+        actions(h('button', { class: 'btn', type: 'button', onclick: () => nextStep(step, single) }, 'Passt so')),
+        h('p', { class: 'hint' }, 'Oder such unten einen anderen Ort.'))
+      : null;
     return stepPage(step, single,
       h('div', { class: 'app-mark', html: ICONS.weather }),
       h('h1', {}, 'Für welchen Ort soll ich das Wetter zeigen?'),
       h('p', { class: 'lead' }, 'Das Wetter steht oben im Dashboard und kommt in deinen Tagesplan. Dafür brauche ich kein Konto.'),
+      already,
       h('div', { class: 'stack' }, h('div', { class: 'field' }, h('label', { for: 'place' }, 'Ort'), q), results, err, actions(laterButton(step, 'weather', single))));
   },
 
@@ -263,6 +301,7 @@ export async function renderSetup(step) {
   if (!STEP_RENDERERS[step]) return go('/einrichtung/willkommen');
   try {
     const page = await STEP_RENDERERS[step](step, false);
+    if (!page) return;
     root.replaceChildren(...shell(null, page));
     page.querySelector('input:not([type="checkbox"]), button.btn')?.focus();
   } catch (err) {
@@ -272,8 +311,10 @@ export async function renderSetup(step) {
 
 export async function renderSingleStep(step) {
   if (!STEP_RENDERERS[step] || ['willkommen', 'fertig'].includes(step)) return go('/verbindungen');
+  if (step === 'berechtigungen') return go('/berechtigungen');
   try {
     const page = await STEP_RENDERERS[step](step, true);
+    if (!page) return;
     root.replaceChildren(...shell('/verbindungen', page));
     page.querySelector('input:not([type="checkbox"])')?.focus();
   } catch (err) {
@@ -361,8 +402,9 @@ export async function renderConnections() {
 
 export async function renderSettings() {
   let s;
+  let status;
   try {
-    s = await api('GET', '/api/settings');
+    [s, status] = await Promise.all([api('GET', '/api/settings'), api('GET', '/api/status')]);
   } catch (err) {
     toast(err.message, 'error');
     return;
@@ -393,9 +435,41 @@ export async function renderSettings() {
   const calSection = h('section', {}, h('h2', {}, 'Kalender im Dashboard'), h('p', { class: 'hint' }, 'Lade …'));
   const curPw = h('input', { type: 'password', id: 'pw-cur', autocomplete: 'current-password' });
   const newPw = h('input', { type: 'password', id: 'pw-new', autocomplete: 'new-password', minlength: '8' });
+  const passwordSection = status.hasPassword
+    ? h('section', {},
+      h('h2', {}, 'Passwort ändern'),
+      h('div', { class: 'row-2' }, h('div', { class: 'field' }, h('label', { for: 'pw-cur' }, 'Aktuelles Passwort'), curPw), h('div', { class: 'field' }, h('label', { for: 'pw-new' }, 'Neues Passwort'), newPw)),
+      h('div', { class: 'inline' }, h('button', { class: 'btn btn-quiet', type: 'button', onclick: async () => {
+        try {
+          await api('POST', '/api/password', { current: curPw.value, next: newPw.value });
+          curPw.value = '';
+          newPw.value = '';
+          toast('Passwort geändert. Andere Geräte sind jetzt abgemeldet.');
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+      } }, 'Passwort ändern')))
+    : h('section', {},
+      h('h2', {}, 'Passwort für Safari und iPhone'),
+      h('p', { class: 'hint' }, 'In der Mac-App brauchst du kein Passwort. Wenn du das Dashboard auch in Safari oder auf dem iPhone öffnen willst, leg hier eins fest.'),
+      h('div', { class: 'row-2' }, h('div', { class: 'field' }, h('label', { for: 'pw-new' }, 'Neues Passwort'), newPw)),
+      h('div', { class: 'inline' }, h('button', { class: 'btn btn-quiet', type: 'button', onclick: async () => {
+        try {
+          await api('POST', '/api/setup/password', { password: newPw.value });
+          newPw.value = '';
+          toast('Passwort festgelegt.');
+          renderSettings();
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+      } }, 'Passwort festlegen')));
   const page = h('main', { class: 'page page-narrow' },
     h('h1', {}, 'Einstellungen'),
     h('div', { class: 'settings-list' },
+      h('section', {},
+        h('h2', {}, 'Berechtigungen'),
+        h('p', { class: 'hint' }, isMacApp ? 'Mikrofon, Mitteilungen, Standort, Dock und ob ich morgens von selbst starte.' : 'Mikrofon und Standort in diesem Browser.'),
+        h('div', { class: 'inline' }, h('a', { class: 'btn btn-quiet', href: '#/berechtigungen' }, 'Berechtigungen ansehen'))),
       h('section', {},
         h('h2', {}, 'Tagesplan'),
         h('label', { class: 'check' }, planOn, h('span', {}, 'Jeden Morgen automatisch To-dos und Briefing erstellen')),
@@ -413,22 +487,10 @@ export async function renderSettings() {
         h('h2', {}, 'Zeitzone'),
         h('p', { class: 'hint' }, 'Nach dieser Zeitzone richten sich Tagesplan, Termine und To-dos. Zum Beispiel Europe/Berlin.'),
         h('div', { class: 'inline' }, tz, h('button', { class: 'btn btn-quiet', type: 'button', onclick: () => save({ timezone: tz.value.trim() }) }, 'Speichern'))),
+      passwordSection,
       h('section', {},
-        h('h2', {}, 'Passwort ändern'),
-        h('div', { class: 'row-2' }, h('div', { class: 'field' }, h('label', { for: 'pw-cur' }, 'Aktuelles Passwort'), curPw), h('div', { class: 'field' }, h('label', { for: 'pw-new' }, 'Neues Passwort'), newPw)),
-        h('div', { class: 'inline' }, h('button', { class: 'btn btn-quiet', type: 'button', onclick: async () => {
-          try {
-            await api('POST', '/api/password', { current: curPw.value, next: newPw.value });
-            curPw.value = '';
-            newPw.value = '';
-            toast('Passwort geändert. Andere Geräte sind jetzt abgemeldet.');
-          } catch (err) {
-            toast(err.message, 'error');
-          }
-        } }, 'Passwort ändern'))),
-      h('section', {},
-        h('h2', {}, 'Abmelden'),
-        h('div', { class: 'inline' }, h('button', { class: 'btn btn-quiet', type: 'button', onclick: async () => {
+        h('h2', {}, isMacApp ? 'Einrichtung' : 'Abmelden'),
+        h('div', { class: 'inline' }, isMacApp ? '' : h('button', { class: 'btn btn-quiet', type: 'button', onclick: async () => {
           await api('POST', '/api/logout').catch(() => {});
           go('/');
         } }, 'Abmelden'), h('button', { class: 'btn btn-quiet', type: 'button', onclick: () => go('/einrichtung/willkommen') }, 'Einrichtung nochmal durchgehen')))));
